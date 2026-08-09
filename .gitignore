@@ -1,0 +1,46 @@
+# Ignore everything without an extension, then selectively allow files and directories.
+*
+!*.*
+!*/
+
+# Don't ignore makefiles and license files.
+!makefile
+!Makefile
+!LICENSE
+
+# Ignore GHDL work libraries. The llvm and gcc backends also emit object files next to the sources,
+# where mcode emits none, so ignore those too rather than leaving one backend's users with a dirty
+# tree.
+work-obj*.cf
+*.o
+*.a
+
+# Ignore avr-gcc build products (fw/avr).
+*.elf
+*.hex
+*.eep
+
+# Ignore Quartus build artifacts.
+db/
+incremental_db/
+output_files/
+greybox_tmp/
+*.qws
+*.rpt
+*.summary
+*.smsg
+*.sld
+*.done
+*.qarlog
+
+# Ignore the Python environment and bytecode used to redraw the diagrams.
+.venv/
+__pycache__/
+*.pyc
+
+# Ignore IDE directories.
+.vscode/
+.vs/
+
+# Ignore temp/ directory.
+temp/
