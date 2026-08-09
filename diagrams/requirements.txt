@@ -1,0 +1,11 @@
+# Pinned exactly: these figures are committed as PNGs, and an unpinned upgrade would
+# re-render them slightly differently and show up as a noisy binary diff.
+#
+# schemdraw draws the schematics; it does not pull matplotlib in itself, because its
+# default backend emits SVG. We render PNG, so matplotlib is a direct dependency.
+schemdraw==0.23
+matplotlib==3.11.1
+
+# Pulled in by matplotlib anyway, but imported directly by style.py to write the figures as
+# palette PNGs, so it is pinned here rather than left to matplotlib's resolver.
+pillow==12.3.0
