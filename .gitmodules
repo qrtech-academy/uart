@@ -1,0 +1,3 @@
+[submodule "libs/test"]
+	path = libs/test
+	url = https://github.com/qrtech-academy/test-framework.git
