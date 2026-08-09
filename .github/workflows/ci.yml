@@ -1,0 +1,63 @@
+# Set pipeline name.
+name: CI
+
+# Set pipeline triggers.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Skip testbenches whose modules aren't written yet (students add one module per lecture, all of
+# them in hw/). Set a repository variable CI_BUILD_ALL=1 to attempt every testbench regardless,
+# e.g. to validate a complete reference set.
+env:
+  CI_BUILD_ALL: ${{ vars.CI_BUILD_ALL || '0' }}
+
+# Define pipeline jobs.
+jobs:
+  # Check that every C/C++ file this course owns matches .clang-format, and that no VHDL file in hw/
+  # carries trailing whitespace. libs/ is a submodule with its own style and is skipped by
+  # ci/format.sh, so this job needs no submodule checkout.
+  format:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: make format-check
+
+  # Build the host-side C++ (the driver, its host tests and the demo main) and run its tests. Each
+  # suite guards its own body with #if __has_include(...), and fw/Makefile skips the test target
+  # entirely until the headers that suite exercises exist, so the job stays green while the driver
+  # is still being written lecture by lecture.
+  build-cpp:
+    name: Build C++ and run host tests
+    runs-on: ubuntu-latest
+    steps:
+      # The host tests build QAcademy Test from libs/test, a submodule, so this job needs it
+      # checked out. If test-framework is private, the default GITHUB_TOKEN cannot read it and
+      # this needs a PAT in "token" instead.
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build and test
+        run: make build-cpp
+
+  # Analyze, elaborate, and simulate every testbench whose modules are present.
+  build-vhdl:
+    name: Simulate the peripheral
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install GHDL
+        uses: ghdl/setup-ghdl@v1
+        with:
+          backend: mcode
+      - name: Analyze, elaborate, and simulate
+        run: make build-vhdl
