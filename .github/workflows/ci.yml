@@ -25,10 +25,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+      # ubuntu-latest ships clang-format preinstalled, so apt is only a fallback. `apt-get update`
+      # is deliberately not run first: the runner image carries third-party repositories
+      # (packages.microsoft.com) that intermittently return 403, which fails the whole update and
+      # takes this job down with it for reasons that have nothing to do with the course.
+      - name: Provide clang-format
+        run: command -v clang-format || sudo apt-get install -y clang-format
       - name: Check formatting
-        run: make format-check
+        run: |
+          clang-format --version
+          make format-check
 
   # Build the host-side C++ (the driver, its host tests and the demo main) and run its tests. Each
   # suite guards its own body with #if __has_include(...), and fw/Makefile skips the test target
