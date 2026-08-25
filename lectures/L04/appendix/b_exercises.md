@@ -1,140 +1,131 @@
 # Appendix B
 
 ## Exercises
-Exercise 1 reinforces [Appendix A](./a_uart_regs.md), and Exercise 2 completes `uart_top` from
-[L01 Appendix B](../../L01/appendix/b_uart_top.md). The `fifo` the register bank owns was built in
-[L03](../../L03/appendix/c_fifo.md), so it is already in `hw/` and ready to instantiate. Build each
-module from its appendix and check it with the provided testbench, run from `hw/` (see
-[`hw/README.md`](../../../hw/README.md)).
+Exercise 1 reinforces [Appendix A](./a_fifo.md). Exercise 2 puts the receiver built in
+[L03](../../L03/README.md) into `uart_top`, behind the synchronizer that owns the crossing.
+Exercise 3 is the reasoning that links the receiver to the register bank you build next. Design the
+module from the specification in its appendix and check it with the provided testbench, run from
+`hw/` (see [`hw/README.md`](../../../hw/README.md)).
 
 ---
 
-## Exercise 1 - `uart_regs`
-**a)** Write your own `uart_regs.vhd` from [Appendix A](./a_uart_regs.md)'s specification and run its
+## Exercise 1 - `fifo`
+**a)** Write your own `fifo.vhd` from [Appendix A](./a_fifo.md)'s specification and run its
 testbench:
 
 ```bash
 cd hw
-ghdl -a --std=93 uart_def.vhd fifo.vhd uart_regs.vhd uart_regs_tb.vhd
-ghdl -e --std=93 uart_regs_tb
-ghdl -r --std=93 uart_regs_tb --assert-level=error
+ghdl -a --std=93 uart_def.vhd fifo.vhd fifo_tb.vhd
+ghdl -e --std=93 fifo_tb
+ghdl -r --std=93 fifo_tb --assert-level=error
 ```
 
-`uart_def.vhd` (the register map) and `fifo.vhd` come first because `uart_regs` reads the package
-and instantiates two FIFOs.
+**b)** The testbench pushes a fifth byte into a full depth-4 FIFO and checks it is dropped. Remove
+the `not full` guard on writes and re-run. What does the run report, and what has your FIFO done to
+`count` and to the `head`/`tail` pointers to cause it? Note that the answer depends on how you
+declared `count`: constrained as `natural range 0 to DEPTH`, the fifth push drives it out of range
+and GHDL stops on a bound check before any assertion runs; left as an unconstrained `natural`, the
+count simply passes `DEPTH` and it is the testbench's own check that fires. Both are failures, but
+only one of them is the testbench talking. Put the guard back.
 
-**b)** Make `RX_DATA` pop the FIFO on read (advance `tail` whenever that index is read). Re-run. The
-"a bare `RX_DATA` read must not pop" check fails; explain, in terms of the SPI transport's abort
-rule, why a read with a side effect is a genuinely harder thing to get right than the pure read
-plus separate `RX_POP`.
+**c)** `rdata` shows the front entry with no `rd`; `rd` only advances. Explain why the RX path you
+will build in L05 needs exactly this "look, then advance" split rather than a single
+"read-and-pop" operation.
 
-**c)** `STATUS` is computed, not stored. Name the four things each of its bits is derived from, and
-say why none of them can simply be a stored register that the datapath writes.
-
-**d)** The bank acts on every `reg_write` it sees as a real commit. What does it rely on the
-provided SPI bridge to guarantee for that to be safe, and what would break if a half-finished
-(aborted) transaction could reach it as a `reg_write`?
+**d)** Both FIFOs in the finished peripheral are depth 8. Suppose software is slow and the receiver
+delivers bytes faster than software reads them. At depth 8, how many back-to-back frames can arrive
+before a byte is lost, and what flag would tell software it happened?
 
 ---
 
-## Exercise 2 - `uart_top`
-**a)** You built the `uart_top` skeleton in L01 and added `baud_gen`, `uart_tx`, `sync` and `uart_rx`
-across L02 and L03, declaring each block's signals as you went. Now do it once more for `uart_regs`,
-the last block the top was waiting for. Three signals are new here:
+## Exercise 2 - The receive path in `uart_top`
+**a)** Add the receive path to the `uart_top` skeleton, which this time is two instantiations rather
+than one: `sync` on the `rx` pin, then `uart_rx` behind it, reading `rx_s2` rather than `rx`. The
+signals this step adds:
 
 | Signal | Type | Driven by | Read by |
 |---|---|---|---|
-| `tx_empty` | `std_logic` | `uart_regs` | the feeder below |
-| `rx_full`  | `std_logic` | `uart_regs` | nothing, in this build |
-| `tx_pop`   | `std_logic` | the feeder below | `uart_regs` |
+| `rx_vec`    | `std_logic_vector(0 downto 0)` | the `rx` pin, in the adapter below | `sync` |
+| `rx_vec_s2` | `std_logic_vector(0 downto 0)` | `sync` | the adapter below |
+| `rx_s2`     | `std_logic`                    | the adapter below | `uart_rx` |
+| `rx_byte`   | `std_logic_vector(7 downto 0)` | `uart_rx` | `uart_regs` (L05) |
+| `rx_push`   | `std_logic`                    | `uart_rx`'s `valid` | `uart_regs` (L05) |
+| `frame_err` | `std_logic`                    | `uart_rx` | `uart_regs` (L05) |
 
-Every other port below is a signal you already declared in L01, L02 or L03 - which is the point of
-having declared them where they were needed.
+![Module `sync`](./images/sync.png)
 
-![Module `uart_regs`](./images/uart_regs.png)
+`COUNT` defaults to 1, so this instance needs no generic map - but it does work on vectors, which
+is why the two one-element vectors above exist.
 
-| # | `uart_regs` port | Dir | Type | Connect to |
+| # | `sync` port | Dir | Type | Connect to |
 |---|---|---|---|---|
-| 1  | `clock`      | in  | `std_logic`                     | `clock` |
-| 2  | `reset_s2_n` | in  | `std_logic`                     | `reset_s2_n` |
-| 3  | `reg_addr`   | in  | `std_logic_vector(3 downto 0)`  | `reg_addr` (L01) |
-| 4  | `reg_wdata`  | in  | `std_logic_vector(31 downto 0)` | `reg_wdata` (L01) |
-| 5  | `reg_write`  | in  | `std_logic`                     | `reg_write` (L01) |
-| 6  | `tx_pop`     | in  | `std_logic`                     | `tx_pop` |
-| 7  | `rx_byte`    | in  | `std_logic_vector(7 downto 0)`  | `rx_byte` (L03) |
-| 8  | `rx_push`    | in  | `std_logic`                     | `rx_push` (L03) |
-| 9  | `tx_busy`    | in  | `std_logic`                     | `tx_busy` (L02) |
-| 10 | `frame_err`  | in  | `std_logic`                     | `frame_err` (L03) |
-| 11 | `reg_rdata`  | out | `std_logic_vector(31 downto 0)` | `reg_rdata` (L01) |
-| 12 | `baud_div`   | out | `std_logic_vector(15 downto 0)` | `baud_div` (L02) |
-| 13 | `tx_byte`    | out | `std_logic_vector(7 downto 0)`  | `tx_byte` (L02) |
-| 14 | `tx_empty`   | out | `std_logic`                     | `tx_empty` |
-| 15 | `rx_full`    | out | `std_logic`                     | `rx_full` |
+| 1 | `clock`      | in  | `std_logic`                        | `clock` |
+| 2 | `reset_s2_n` | in  | `std_logic`                        | `reset_s2_n` |
+| 3 | `async_in`   | in  | `std_logic_vector(COUNT-1 downto 0)` | `rx_vec` |
+| 4 | `sync_out`   | out | `std_logic_vector(COUNT-1 downto 0)` | `rx_vec_s2` |
 
 ```vhdl
--- The register bank: the bridge's bus on one side, the datapath on the other. This closes
--- every loop in the design - the bus now has something answering on it, the transmitter has
--- a byte source, and the receiver has somewhere to put what it recovers.
-uart_regs: entity work.uart_regs
-    port map(clock, reset_s2_n, reg_addr, reg_wdata, reg_write, tx_pop, rx_byte, rx_push,
-             tx_busy, frame_err, reg_rdata, baud_div, tx_byte, tx_empty, rx_full);
+-- Cross the rx pin into the clock domain, once, in the module that owns the pin.
+sync: entity work.sync
+    port map(clock, reset_s2_n, rx_vec, rx_vec_s2);
+
+-- sync works on vectors, so the single rx bit goes in and comes back out through one.
+rx_vec(0) <= rx;
+rx_s2     <= rx_vec_s2(0);
 ```
 
-Delete the `reg_rdata <= (others => '0');` placeholder from L01 in the same edit: the bank drives
-that vector now, and leaving the placeholder in gives it two drivers.
+![Module `uart_rx`](./images/uart_rx.png)
 
-With `tx_empty` finally driven, the **TX feeder** can be written, the one piece of real logic the top
-has been waiting to hold. It is two concurrent statements:
+| # | `uart_rx` port | Dir | Type | Connect to |
+|---|---|---|---|---|
+| 1 | `clock`      | in  | `std_logic`                    | `clock` |
+| 2 | `reset_s2_n` | in  | `std_logic`                    | `reset_s2_n` |
+| 3 | `baud_tick`  | in  | `std_logic`                    | `baud_tick` - the same tick `uart_tx` uses |
+| 4 | `rx_s2`      | in  | `std_logic`                    | `rx_s2`, **not** the `rx` pin |
+| 5 | `data_out`   | out | `std_logic_vector(7 downto 0)` | `rx_byte` |
+| 6 | `valid`      | out | `std_logic`                    | `rx_push` |
+| 7 | `frame_err`  | out | `std_logic`                    | `frame_err` |
 
 ```vhdl
--- The TX feeder: load the transmitter whenever a byte is queued and the line is free, and pop
--- the FIFO on that same edge, so exactly one byte moves per idle transmitter. The instant the
--- transmitter goes busy, tx_load drops - which is what stops a second byte following it.
-tx_load <= (not tx_empty) and (not tx_busy);
-tx_pop  <= tx_load;
+-- Recover bytes from the synchronized line. Its valid output is the RX FIFO's push strobe, so
+-- it binds straight to rx_push: that side needs no feeder, unlike the transmit side in L05.
+uart_receiver: entity work.uart_rx
+    port map(clock, reset_s2_n, baud_tick, rx_s2, rx_byte, rx_push, frame_err);
 ```
 
-Note why this could not have been written earlier: `tx_empty` comes from the register bank and
-`tx_busy` from the transmitter, so the feeder needs a block from L02 and a block from L04 to exist
-at the same time. That is the general shape of this design, and the reason signals are declared
-where they are needed rather than all at once in L01.
+The order matters and is the point of the exercise: the pin crosses into the clock domain once, in
+the module that owns the pin, and everything downstream of that is ordinary synchronous logic.
+Binding `rx` straight to port 4 would analyze - both are `std_logic` - and would sample an
+asynchronous pin directly, which is the metastability bug L03's synchronizer exists to prevent.
 
-The receive side needs no equivalent: `uart_rx`'s `valid` went straight to `rx_push` in L03, so the
-receiver pushes its own byte into the RX FIFO.
-
-Then run the system testbench:
+Both `rx_byte` and `rx_push` are read by nothing until L05, so nothing yet consumes what the
+receiver produces. That is expected: an output with no reader analyzes and elaborates fine. The
+FIFO from Exercise 1 is not instantiated here either: it belongs to the register bank that owns it,
+which arrives in L05.
 
 ```bash
 cd hw
-ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd sync.vhd fifo.vhd uart_tx.vhd \
-     uart_rx.vhd uart_regs.vhd spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd uart_top_tb.vhd
-ghdl -e --std=93 uart_top_tb
-ghdl -r --std=93 uart_top_tb --assert-level=error
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd sync.vhd uart_tx.vhd uart_rx.vhd \
+     spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd
 ```
 
-Everything the design contains appears on that line, in dependency order, including `fifo`, which
-`uart_top` never instantiates itself: `uart_regs` owns both of them. With the last block in place,
-the system testbench elaborates the whole peripheral for the first time.
-
-If `uart_top_tb` fails on the `BAUD_DIV` read-back with every `1` bit missing from the value you
-wrote, and the run is littered with `NUMERIC_STD.TO_INTEGER: metavalue detected` warnings, the L01
-placeholder is still there: each `'1'` the bank drives is resolving against its `'0'` to `'X'`.
-
-**b)** The provided `reset_sync` asserts asynchronously but releases synchronously. Explain what
-could go wrong if it released `reset_s2_n` asynchronously too (the moment `reset_n` rises), and why
-asserting asynchronously is nonetheless the right choice.
-
-**c)** Why can `reset_sync` not just be a `sync` instance, given that both are two flip flops in
-series? Name the port that settles it, and describe the circular dependency you would create by
-trying.
-
-**d)** Study the TX feeder you wrote in a): `tx_load <= (not tx_empty) and (not tx_busy)`. Argue
-that it loads **exactly one** byte each time the transmitter goes idle with the FIFO non-empty,
-never zero and never two. What holds `tx_load` low for the rest of the frame?
-
-**e)** The system testbench loops `tx` back to `rx`. Trace a single byte: SPI write of `TX_DATA`,
-through the FIFO and transmitter, out `tx`, back in `rx`, through the receiver into the RX FIFO, and
-out again on an SPI read of `RX_DATA`. Name the block that acts at each step.
+The top still analyzes and the system testbench is still skipped; only `uart_regs` is missing now.
 
 ---
 
+## Exercise 3 - Overrun belongs to the register bank
+`uart_rx` reports a *framing* error but never an *overrun*: a second byte arriving before the first
+was read.
+
+**a)** Explain why `uart_rx`, on its own, cannot detect an overrun. What single piece of
+information does it lack?
+
+**b)** In L05 the RX FIFO's `full` flag is what makes overrun visible: a `valid` byte arriving while
+the FIFO is full is dropped. Sketch, in words, the extra flag you would add so software could tell
+that a byte was lost, and say which register it would live in (see the
+[protocol spec](../../../protocol/uart_register_protocol.md)'s `ERROR_FLAGS`).
+
+**c)** A framing error and an overrun have different causes. Give a physical cause for each: what on
+the wire, or in the software's timing, produces one but not the other?
+
+---

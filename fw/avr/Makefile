@@ -5,7 +5,7 @@
 #
 # Like the rest of the repository, this Makefile is written to sit in place before the code it
 # builds exists: with no avr/main.cpp yet, `make build` reports that there is nothing to do rather
-# than failing, so CI stays green from L01 through L06 and only starts building in L07.
+# than failing, so CI stays green from L01 through L08 and only starts building in L09.
 #
 # Usage:
 #   make build     compile and link, then report flash and RAM use

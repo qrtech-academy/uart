@@ -3,8 +3,8 @@
 **Time:** 4 hours. **Closed book.** A basic calculator is permitted. **Total: 100 marks.**
 
 This paper exists to test your own skills and knowledge. It is not a qualification and it gates
-nothing. It draws on all eight lectures and on both halves of the system, so **it is meant to be
-taken once the course is over**, after L08 and the bring-up ladder.
+nothing. It draws on all ten lectures and on both halves of the system, so **it is meant to be
+taken once the course is over**, after L10 and the bring-up ladder.
 
 ---
 
@@ -92,14 +92,14 @@ to analysis time, and what that change costs. (3 marks)
 
 **(c)** Two things about `reg_rdata` and one about `baud_div`.
 
-**(i)** L01 leaves the placeholder `reg_rdata <= (others => '0');` in `uart_top`, and L04
+**(i)** L01 leaves the placeholder `reg_rdata <= (others => '0');` in `uart_top`, and L05
 instantiates `uart_regs`, whose `reg_rdata` output drives the same signal. A candidate forgets to
 delete the placeholder. `uart_top_tb` writes `BAUD_DIV` with `0x00000004` and reads it back.
 
 Name the VHDL mechanism that now governs `reg_rdata`, give the value each of the low four bits
 carries during the read-back, and state what the bench reports. (2 marks)
 
-**(ii)** Before L04 exists, `baud_div` has no driver at all, and `uart_top` still has to hand
+**(ii)** Before L05 exists, `baud_div` has no driver at all, and `uart_top` still has to hand
 `baud_gen` a `natural range 1 to 65535`. State the value `to_integer(unsigned(baud_div))` returns in
 that situation and the message it prints, and state why the value the library picks is worse than
 merely wrong here. Then give the guarded expression the course uses, and say which of its two cases
@@ -358,7 +358,7 @@ constant and the class, with nothing left in it the AVR build cannot take. (3 ma
 
 **(d)** `write()` and `read()` are non-blocking and each returns a `bool`.
 
-State what each `bool` means. Name the `STATUS` bit that makes each answer possible, and the L04
+State what each `bool` means. Name the `STATUS` bit that makes each answer possible, and the L05
 mechanism behind that bit. Then state where the blocking versions live, why they are free functions
 taking `Interface&` rather than methods, and what would be lost if the interface itself blocked.
 (2 marks)

@@ -25,9 +25,9 @@ is explained below.
 | `sync_tb.vhd` | | yes |
 | `uart_rx.vhd` | L03 | |
 | `uart_rx_tb.vhd` | | yes |
-| `fifo.vhd` | L03 | |
+| `fifo.vhd` | L04 | |
 | `fifo_tb.vhd` | | yes |
-| `uart_regs.vhd` | L04 | |
+| `uart_regs.vhd` | L05 | |
 | `uart_regs_tb.vhd` | | yes |
 | `spi_slave.vhd` | | yes (transport) |
 | `spi_slave_tb.vhd` | | yes |
@@ -37,9 +37,10 @@ is explained below.
 The directory starts out holding the nine testbenches, the provided SPI transport (`spi_slave.vhd`,
 `spi_reg_bridge.vhd`), the provided reset synchronizer (`reset_sync.vhd`), and the provided
 register-map package (`uart_def.vhd`). Each lecture then adds the module(s) it live-codes: L01 the
-peripheral top (`uart_top`), L02 the baud generator and transmitter, L03 the synchronizer, the
-receiver and the FIFO, L04 the register bank. `uart_top` is built top-down in L01 and gains one
-datapath block per lecture; its system testbench stays skipped until the last block lands in L04.
+peripheral top (`uart_top`), L02 the baud generator and transmitter, L03 the synchronizer and the
+receiver, L04 the FIFO, L05 the register bank. `uart_top` is built top-down in L01 and gains its
+blocks as they arrive - `baud_gen` and `uart_tx` in L02, `sync` and `uart_rx` in L04, `uart_regs` in
+L05 - so its system testbench stays skipped until that last block lands.
 
 The provided transport is a **black box** in this course: you instantiate `spi_slave` and
 `spi_reg_bridge` in `uart_top`, but you do not write or modify them. The wire protocol they
@@ -51,8 +52,8 @@ which is what you need in order to instantiate them, are tabulated in
 The DE0-CV board wrapper (`uart_board.vhd`, the Quartus top level with the pin assignments) is
 deliberately **not** here: it is board I/O rather than peripheral logic, is never exercised by
 these testbenches, and belongs with the Quartus project. That project - the wrapper and the pin
-assignment file - is handed out at the start of L07, which is where the design is first synthesized
-and programmed; L08 only edits it, to jumper pins for the bring-up ladder.
+assignment file - is handed out at the start of L09, which is where the design is first synthesized
+and programmed; L10 only edits it, to jumper pins for the bring-up ladder.
 
 ---
 

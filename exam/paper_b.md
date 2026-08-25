@@ -3,8 +3,8 @@
 **Time:** 4 hours. **Closed book.** A basic calculator is permitted. **Total: 100 marks.**
 
 This paper exists to test your own skills and knowledge. It is not a qualification and it gates
-nothing. It draws on all eight lectures and on both halves of the system, so **it is meant to be
-taken once the course is over**, after L08 and the bring-up ladder.
+nothing. It draws on all ten lectures and on both halves of the system, so **it is meant to be
+taken once the course is over**, after L10 and the bring-up ladder.
 
 ---
 
@@ -100,10 +100,10 @@ Then answer two things. `spi_slave` and `spi_reg_bridge` both have a port called
 why those are not one bus and which way each of your signals runs. And state why `reg_addr` is four
 bits wide when there are only seven registers. (5 marks)
 
-**(c)** L01 ends with one placeholder assignment, because the register bank is three lectures away.
+**(c)** L01 ends with one placeholder assignment, because the register bank is four lectures away.
 
 Write it. Then state what an SPI **read** transaction returns while it is in place and why that is
-harmless until L04, and state what a read would return instead if the placeholder were left out
+harmless until L05, and state what a read would return instead if the placeholder were left out
 altogether - being precise about what "returns" means for a signal nobody drives. (2 marks)
 
 **(d)** State what building `uart_top` before any block it instantiates fixes about every block you
@@ -370,6 +370,6 @@ does not we start debugging." Give two reasons this is a worse plan **even when 
 identical.
 
 State what is now impossible, what has to be built before the class can be tested at all, and give
-the one-line fix. Then name the L05 design decision this makes concrete. (2 marks)
+the one-line fix. Then name the L06 design decision this makes concrete. (2 marks)
 
 ---

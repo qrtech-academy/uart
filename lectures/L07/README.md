@@ -1,97 +1,92 @@
-# L07 - The Real Transport, and Both Toolchains
+# L07 - The Driver, Built
 
 ## Agenda
-This is where the stub gives way to real hardware.
+L06 designed the contracts; this lecture implements them. Nothing is tested yet - that is L08 - so
+the hour goes entirely on the code that has to be right before a test can say so.
 
-* **The AVR's own SPI peripheral**: `SPCR`, `SPSR` and `SPDR` as genuine memory-mapped `volatile`
-  registers, configured as an SPI master at f_osc/16 = 1 MHz, mode 0, MSB first, matching [Part 3 of
-  the spec](../../protocol/uart_register_protocol.md).
-* **`AvrSpi` on top of it**, implementing the same `driver::transport::Interface` seam that L06's
-  `driver::transport::Stub` did, only now clocking real bytes. Nothing above the seam changes, which
-  is the whole return on the design work in L05.
-* **What a freestanding target removes**, namely the heap, exceptions, RTTI and iostreams, and what
-  replaces each: static storage, return codes, virtual dispatch in place of `dynamic_cast`, and
-  logging over the AVR's own hardware UART.
-* **Building with avr-gcc and flashing with avrdude.**
-* **The other toolchain**: synthesizing `uart_board.vhd` in Quartus, assigning pins, and programming
-  the DE0-CV over USB-Blaster. Both halves of the course reach real hardware in this lecture, and
-  doing the FPGA side here rather than on bring-up day means a toolchain problem surfaces while
-  there is still time to solve it.
+* **The register protocol in code**: `readReg()` and `writeReg()` as the 5-byte SPI transactions of
+  [Part 3 of the spec](../../protocol/uart_register_protocol.md), each moving its bytes through the
+  transport interface most significant byte first.
+* **`const` at a hardware boundary**: why `readReg()` is a `const` member driving a non-`const`
+  transport, what `const_cast` is doing there, and what it is *not* doing, since `const` never
+  propagated through the reference member in the first place.
+* **The `Uart` driver** on that core, implementing the L06 `Interface`: `configure`, the
+  non-blocking `write`, and the poll, read and separate `RX_POP` that make up the read path.
+* **Why the read path is three accesses and not one**: `RX_DATA` is a pure read, `RX_POP` is what
+  advances the FIFO, and the L05 register bank is on the other side of the wire enforcing exactly
+  that.
 
 ---
 
 ## Objectives
 After this lecture, participants should be able to:
 
-* **Configure the AVR SPI master registers** correctly for the transport contract, and explain each
-  bit they set.
-* **Implement `AvrSpi`** so that the existing driver and its host tests are reused unchanged.
-* **Explain which host-side idioms do not survive a freestanding build**, and what replaces them.
-* **Synthesize and program the DE0-CV**, and read a fit and timing report well enough to say whether
-  the design met timing at 50 MHz.
+* **Implement `readReg()` and `writeReg()`** as byte sequences that match the protocol spec exactly,
+  and explain why the four data bytes go most significant first.
+* **Explain what `const` does and does not reach** through a reference member, and justify the
+  `const_cast` at the one line where a `const` method starts driving hardware.
+* **Implement the `Uart` methods** over that register core, including the poll, read and `RX_POP`
+  split, injecting the transport through the constructor.
+* **Say what each of the three RX accesses would break** if it were omitted, reordered, or folded
+  into the one before it.
 
 ---
 
 ## Prerequisites
-This lecture needs the `driver::transport::Interface` seam from L05, which is what the new transport
-implements, and the `Uart` driver and host tests from L06, which are reused here unchanged. It also
-needs the finished `uart_top` from L04, passing its system testbench, because the second half of the
-lecture puts that design on the FPGA. From Embedded C it assumes the AVR toolchain, avr-gcc and
-avrdude, and register-level programming; from Modern Embedded C++, the `volatile` semantics of
-memory-mapped registers. Install **Quartus Prime Lite** before the lecture: it is a multi-gigabyte
-download, and it is the one tool the course has not needed until now.
+This lecture rests entirely on L06: the register map, the transport interface
+(`driver::transport::Interface`), and the driver interface (`driver::uart::Interface`) that the
+driver implements. It also assumes the register semantics from L05, since the driver is the other
+side of that contract. From Modern Embedded C++ it assumes inheritance, `override` and dependency
+injection.
 
 ---
 
 ## Instructions
 
 ### Preparation
-Read [Appendix A](./appendix/a_avr_transport.md) for the SPI peripheral and `AvrSpi`, and
-[Appendix B](./appendix/b_freestanding.md) for the freestanding target and the toolchain. Alongside
-them, read the ATmega328P datasheet's SPI section covering `SPCR`, `SPSR` and `SPDR`, and the
-provided `avr/` runtime and Makefile under [`fw/`](../../fw/README.md).
+Read [Appendix A](./appendix/a_driver.md), which explains the register read/write core and the
+driver built over it. Re-read the **Register Semantics** section of the [protocol
+spec](../../protocol/uart_register_protocol.md): every method in this lecture is one half of a
+promise the VHDL already keeps.
 
 ### During the Lecture
-We live-code `AvrSpi`, confirm the host tests still pass unchanged with `make build-cpp`, then
-cross-compile and flash a minimal bring-up `main` to show the toolchain end to end:
+We live-code the register core and then the driver over it:
 
 ```bash
-make -C fw/avr flash # avr-gcc + avrdude; see fw/README.md.
+make build-cpp        # builds fw/; the suite still reports nothing to do
 ```
 
-Then the same journey on the other chip, demonstrated rather than typed: we synthesize the
-`uart_top` finished in L04 through the provided `uart_board.vhd` wrapper, read the fit and timing
-report, and program the DE0-CV over USB-Blaster. With `tx` jumpered to `rx` the peripheral echoes
-itself, which is the loopback `uart_top_tb` ran in simulation, now at a real 50 MHz.
+That message is expected and worth pausing on. The provided suite is guarded on four headers, and
+two of them - `driver/transport/stub.hpp` and `driver/uart/blocking.hpp` - are L08's, so it stays
+switched off for one more lecture. Until then the compiler is the only thing checking this code,
+which is exactly why the byte order and the three-access read path are reasoned through rather than
+guessed at.
 
-**The 60 minutes.** `AvrSpi` is about forty lines and we type all of it, going through `SPCR` bit by
-bit, because a wrong bit here is a bug you would otherwise meet on a logic analyzer at the bench.
-That leaves room for the Quartus flow, which is demonstrated rather than typed: compile, read the
-fit and timing report, program the board, and jumper `tx` to `rx` to watch the peripheral echo
-itself. The freestanding `main`, the UART logging and synthesizing your own `uart_top` are the
-exercises.
+**The 60 minutes.** We type `readReg` and `writeReg`, which are the whole protocol in about sixty
+lines and the one place byte order can go wrong, and then `read()`, because the poll, read and
+separate pop is the L05 contract showing up on the other side of the wire. The remaining public
+methods follow the same shape and are the exercise.
 
 ### After the Lecture
-Work through the [exercises](./appendix/c_exercises.md): implement `AvrSpi` and the freestanding
-bring-up `main`, add UART-based logging over the AVR's own hardware UART, and work out one
-`readReg()` round trip against the 1 MHz SCK budget - measuring it on a logic analyzer if you have
-one. Synthesize and program your own `uart_top` as well, so that both chips are running your code
-before the bench session.
+Work through the [exercises](./appendix/b_exercises.md): declare `class Uart final : public
+Interface`, implement the two private register helpers, and implement every public method of the
+interface over them.
 
 ---
 
 ## Evaluation
-* Which idiom from the host build fails to compile freestanding, and how does L07 replace it?
-* The AVR SPI runs at 1 MHz: which prescaler setting produces it from a 16 MHz clock, and what
-  actually limits SCK on this bench, given that the FPGA slave could keep up with considerably more?
-* If `SPDR` is read a cycle too early, before `SPIF` is set, what value comes back, and how does the
-  transport avoid it?
+* A `writeReg()` sends the four data bytes least significant first: what does the peripheral do with
+  the value, and at which point in the course would you first find out?
+* `readReg()` is `const` and calls `begin()` / `transfer()` / `end()`, which are not. Explain why
+  that compiles with no cast at all, and why the course writes the cast anyway.
+* The read path is poll `STATUS`, read `RX_DATA`, write `RX_POP`. Take each of the three away in
+  turn and say what the caller observes.
 
 ---
 
 ## Next Lecture
-Both halves on the bench: two links, a level shifter, and a bring-up ladder that ends with an
-echo application driven end to end.
+The driver gets a wire it can be tested against: a scripted `driver::transport::Stub`, the provided
+host suite that drives the real `Uart` over it with no hardware in sight, and the blocking helpers
+built on top of the non-blocking core.
 
 ---
-

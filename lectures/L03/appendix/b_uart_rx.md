@@ -131,7 +131,7 @@ The spacing between data bits is right, so that offset is fixed rather than accu
 byte, and a sample three ticks late still has five ticks of settled line ahead of it rather than
 eight. The receiver works, and the bench passes, but it begins with roughly half the trailing margin
 the ideal tick-8 sample would have. That is worth holding on to for the margin question in
-[Appendix D](./d_exercises.md): the budget a real receiver spends on baud mismatch is whatever the
+[Appendix C](./c_exercises.md): the budget a real receiver spends on baud mismatch is whatever the
 sampling phase has not already spent.
 
 Walking `bit_idx` from 0 upward and storing with `frame(bit_idx) <= rx_s2` puts the first-received
@@ -139,13 +139,13 @@ bit in bit 0, which is **least significant first**, the order the transmitter se
 `data_out` reads out as the byte that was sent.
 
 `valid` and `frame_err` are one-cycle pulses, so `uart_top` can turn a `valid` straight into a
-FIFO push and latch a `frame_err` into the `ERROR_FLAGS` register (L04). Both default low every
+FIFO push and latch a `frame_err` into the `ERROR_FLAGS` register (L05). Both default low every
 cycle and rise for exactly one clock at the stop-bit sample.
 
 Parity and overrun are deliberately absent here. Parity would be another mid-bit sample between the
 last data bit and the stop bit, gated by `CTRL`; overrun (a new byte arriving before the last was
 read) is not something the receiver can judge, because it does not know whether anyone has read the
-byte. That belongs to the register bank, where the RX FIFO's full flag answers it (L04).
+byte. That belongs to the register bank, where the RX FIFO's full flag answers it (L05).
 
 ---
 
@@ -177,8 +177,9 @@ input, looped back from `tx` in the system testbench so a sent byte comes straig
 ---
 
 ### What's ahead
-[Appendix D](./d_exercises.md) is the exercises: build `sync`, `uart_rx` and `fifo`, run their
-testbenches, and reason about oversampling margin, glitch rejection, and where overrun really lives.
+[Appendix C](./c_exercises.md) is the exercises: build `sync` and `uart_rx`, run their testbenches,
+and reason about oversampling margin and glitch rejection. L04 then adds the FIFO, puts both modules
+into `uart_top`, and works out where overrun really lives.
 
 ---
 

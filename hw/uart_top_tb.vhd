@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- System testbench for uart_top (built in L01, runs from L04).
+-- System testbench for uart_top (built in L01, runs from L05).
 --
 -- Drives the peripheral entirely over SPI, as the ATmega328P would, and loops tx back into rx. A
 -- single SPI-written byte is transmitted, received through the loopback, and read back over SPI:

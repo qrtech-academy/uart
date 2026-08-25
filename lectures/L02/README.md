@@ -83,8 +83,7 @@ second stop bit.
 
 ## Next Lecture
 The hard direction: recovering bytes from an asynchronous line; a two-flop synchronizer on `rx`,
-16x oversampling, mid-bit sampling and framing-error detection, plus the small FIFO the register
-bank will need two of.
+16x oversampling, mid-bit sampling and framing-error detection.
 
 ---
 

@@ -3,7 +3,7 @@
 ## The SPI peripheral and `AvrSpi`
 This is the bottom of the stack, and the one place the code finally touches real hardware.
 Everything above the seam, the register map, the `Interface`, the `Uart` driver, was built and
-host-tested in L05 and L06 against a scripted `Stub`. Here you implement the *other*
+host-tested in L06-L08 against a scripted `Stub`. Here you implement the *other*
 `driver::transport::Interface`, the one that drives the ATmega328P's own SPI peripheral, so the
 exact same driver runs over a real 1 MHz SPI bus with nothing above the seam changing.
 
@@ -85,13 +85,13 @@ return SPDR;                           // Now SPDR holds the received byte.
 
 Read `SPDR` *before* `SPIF` is set and you get stale data from the previous exchange, so the poll is
 not optional. (Reading `SPSR` then `SPDR` also clears `SPIF`, arming the next transfer.) This is the
-same three-method seam the L06 `Stub` implemented; the difference is that these bytes are real.
+same three-method seam the L08 `Stub` implemented; the difference is that these bytes are real.
 
 ---
 
 ### Testing it on the host
 The transport touches hardware, but its *logic* is still worth pinning without a bench, so it is
-host-tested exactly like the L06 `Stub` was, over a mocked register file. On the target, `AvrSpi`
+host-tested exactly like the L08 `Stub` was, over a mocked register file. On the target, `AvrSpi`
 reaches the registers through a platform header (`arch/avr/hw_platform.hpp`), which forwards to
 `<avr/io.h>` and resolves `SPCR`, `SPSR`, `SPDR`, `DDRB` and `PORTB` to the real memory-mapped
 hardware. On the host, that same platform header selects a provided mock instead, under
@@ -108,7 +108,7 @@ the master configuration bits, the chip-select framing (`begin` low, `end` high)
 and that `transfer` returns the byte the mock presented, in order. Only the register file needs
 mocking; the transport uses no interrupts and no `F_CPU`-derived timing, so neither
 `<avr/interrupt.h>` nor `F_CPU` come into it. The whole transport is then proven end to end on the
-bench in L08.
+bench in L10.
 
 ---
 

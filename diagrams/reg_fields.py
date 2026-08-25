@@ -69,14 +69,14 @@ FIGURE = style.Figure(
     canvas=(-(_NAME_WIDTH + LABEL_GAP + 0.35), 0.95, BITS * CELL_W + 0.35, 8.0),
 )
 
-# The map is introduced with `uart_def` in L01 and used by the register bank in L04, so both
+# The map is introduced with `uart_def` in L01 and used by the register bank in L05, so both
 # appendices embed the same figure.
 FIGURES = {
     "reg_fields": (
         FIGURE,
         [
             "lectures/L01/appendix/images/reg_fields.png",
-            "lectures/L04/appendix/images/reg_fields.png",
+            "lectures/L05/appendix/images/reg_fields.png",
         ],
     )
 }

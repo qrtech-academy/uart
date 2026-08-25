@@ -8,7 +8,7 @@
 
 #include "qacademy/test/test.hpp"
 
-// EchoNode is written in L08 over the UART stub from L05, so this suite compiles to nothing until
+// EchoNode is written in L10 over the UART stub from L06, so this suite compiles to nothing until
 // both exist. Guarding on app/echo_node.hpp is also what keeps the link honest: the header and
 // source/app/echo_node.cpp arrive together, so a present header means the definitions exist too.
 #if __has_include("app/echo_node.hpp") && __has_include("driver/uart/stub.hpp")

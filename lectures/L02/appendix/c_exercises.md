@@ -74,12 +74,12 @@ than that:
 
 | Signal | Type | Driven by | Read by |
 |---|---|---|---|
-| `baud_div`     | `std_logic_vector(15 downto 0)` | `uart_regs` (L04) | the conversion below |
+| `baud_div`     | `std_logic_vector(15 downto 0)` | `uart_regs` (L05) | the conversion below |
 | `baud_div_int` | `natural range 1 to 65535`      | the conversion below | `baud_gen` |
 | `baud_tick`    | `std_logic`                     | `baud_gen` | `uart_tx`, and `uart_rx` (L03) |
-| `tx_byte`      | `std_logic_vector(7 downto 0)`  | `uart_regs` (L04) | `uart_tx` |
-| `tx_load`      | `std_logic`                     | the feeder (L04) | `uart_tx`, and `tx_pop` (L04) |
-| `tx_busy`      | `std_logic`                     | `uart_tx` | the feeder (L04), `uart_regs` (L04) |
+| `tx_byte`      | `std_logic_vector(7 downto 0)`  | `uart_regs` (L05) | `uart_tx` |
+| `tx_load`      | `std_logic`                     | the feeder (L05) | `uart_tx`, and `tx_pop` (L05) |
+| `tx_busy`      | `std_logic`                     | `uart_tx` | the feeder (L05), `uart_regs` (L05) |
 | `tx_done`      | `std_logic`                     | `uart_tx` | nothing, in this build |
 
 ![Module `baud_gen`](./images/baud_gen.png)
@@ -120,17 +120,17 @@ uart_transmitter: entity work.uart_tx
 Position 6 is the one to check twice. Every port here is a `std_logic` except `data`, so binding
 a signal there instead of the `tx` pin analyzes cleanly, elaborates cleanly, and leaves the pin
 undriven - the loopback in `uart_top_tb` then feeds `'U'` back into `rx` and the system test fails
-two lectures later with nothing pointing at this line.
+three lectures later with nothing pointing at this line.
 
 Two signals need a word. `tx_byte` has no driver yet, because the FIFO that will fill it arrives
-with `uart_regs` in L04, and neither does `tx_load`, whose feeder you write in the same lecture: an
+with `uart_regs` in L05, and neither does `tx_load`, whose feeder you write in the same lecture: an
 undriven signal analyzes and elaborates without complaint, and the transmitter simply sits idle.
 `baud_div` is the other, and it needs the **guarded conversion** that turns the register bank's
 vector into the `natural` `baud_gen` expects:
 
 ```vhdl
 -- baud_gen's div starts at 1, so substitute a legal value rather than hand it a zero or a
--- metavalue: baud_div has no driver until uart_regs arrives in L04.
+-- metavalue: baud_div has no driver until uart_regs arrives in L05.
 baud_div_int <= 1 when Is_X(baud_div) or unsigned(baud_div) = 0
                 else to_integer(unsigned(baud_div));
 ```
@@ -140,12 +140,12 @@ second `use` clause now. The guard covers two cases, and both of them would othe
 which `baud_gen` does not accept: its `div` port is a `natural range 1 to 65535`, so a `0` reaching
 it is a bound check failure at run time, not a warning you can ignore.
 
-The first case is a **metavalue**. `baud_div` has no driver until L04 either, so it sits at
+The first case is a **metavalue**. `baud_div` has no driver until L05 either, so it sits at
 all-`'U'`, and `to_integer` on an all-`'U'` vector prints `NUMERIC_STD.TO_INTEGER: metavalue
 detected, returning 0` and carries on. The library quietly picks a value you did not choose, and the
 value it picks is out of range.
 
-The second is a **real zero**, which arrives with `uart_regs` in L04: `BAUD_DIV` holds whatever the
+The second is a **real zero**, which arrives with `uart_regs` in L05: `BAUD_DIV` holds whatever the
 bank resets it to until software writes a divider, and that reset value is a legitimate `0`. The
 substitute is `1` because it is the smallest value the port accepts; nothing useful is transmitted
 at either value, so the only thing that matters is that the design elaborates and runs.
@@ -167,7 +167,7 @@ still missing. Do the extension in Exercise 3 on a copy, or after this step, sin
 
 ## Exercise 3 - Parity and a second stop bit
 8N1 is the only framing `uart_tx` produces. Real UARTs let software pick even/odd parity and one or
-two stop bits; in this peripheral those live in the `CTRL` register (L04), but the transmitter is
+two stop bits; in this peripheral those live in the `CTRL` register (L05), but the transmitter is
 where the extra bits would be sent.
 
 **a)** Extend your `uart_tx` with two inputs, `parity_en` and `parity_odd`, and insert a parity bit

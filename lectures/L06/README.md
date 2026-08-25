@@ -1,85 +1,86 @@
-# L06 - The Driver, Built and Tested
+# L06 - The Driver's Contracts
 
 ## Agenda
-L05 designed the contracts; this lecture implements them.
+This lecture crosses from VHDL to C++, and it stays entirely with *shapes*: the driver stack top to
+bottom, and the three abstractions it rests on, before any algorithm is written.
 
-* **The register protocol in code**: `readReg()` and `writeReg()` as the 5-byte SPI transactions of
-  [Part 3 of the spec](../../protocol/uart_register_protocol.md), each moving its bytes through the
-  transport interface most significant byte first.
-* **The `Uart` driver** on that core, implementing the L05 `Interface`: configure, the non-blocking
-  `write`, and the poll, read and separate `RX_POP` that make up the read path.
-* **Host testing with QAcademy Test**, using a scripted `driver::transport::Stub` that records what
-  the driver sends and plays back what it should read, so the whole driver is verified with no
-  hardware in sight.
-* **Blocking `write` and `read`** as thin free functions over the non-blocking core, and a small
-  demo that exercises them.
+* **The register map in C++**: the seven register indices and the `STATUS` / `CTRL` / `ERROR_FLAGS`
+  bits from [Part 2 of the spec](../../protocol/uart_register_protocol.md), transcribed as named
+  constants the whole driver shares with `uart_def.vhd`.
+* **The transport interface**, `driver::transport::Interface`: a byte-level SPI seam of `begin`,
+  `transfer` and `end`. We spend time on why putting that seam at the byte level is exactly what
+  makes the driver host-testable.
+* **The driver interface**, `driver::uart::Interface`: the abstract, non-blocking API the
+  application codes against, being configure, write, read, poll status and clear errors.
+* **A first implementation of it**, `driver::uart::Stub`: a test double that plays back scripted
+  bytes and records what was written. It needs nothing but the interface, so it can be written the
+  moment the interface exists, and it keeps this session from being declarations only.
 
 ---
 
 ## Objectives
 After this lecture, participants should be able to:
 
-* **Implement `readReg()` and `writeReg()`** as byte sequences that match the protocol spec exactly,
-  and explain why the four data bytes go most significant first.
-* **Implement the `Uart` methods** over that register core, including the poll, read and `RX_POP`
-  split, injecting the transport through the constructor.
-* **Build a scripted stub** and use it to assert the exact transactions the driver produces,
-  including the byte order and the "no `RX_POP` on empty" behaviour.
+* **Transcribe the register map** into `register_map.hpp` as `constexpr` constants, and explain why
+  a value here that disagrees with the hardware is a bench-only bug.
+* **Design the transport interface** (`driver::transport::Interface`) and say what it buys: the same
+  driver over a stub in L08 and over the real AVR SPI in L09, with nothing above the seam changing.
+* **Turn the register-level flow into a clean, abstract `Interface`**, and explain why non-blocking
+  `write` and `read` map directly onto the FIFO-backed `STATUS` bits from L05.
+* **Implement that interface once**, as a `Stub` backed by two linear buffers, and explain what a
+  test double has to be faithful about and what it may ignore.
 
 ---
 
 ## Prerequisites
-This lecture rests entirely on L05: the register map, the transport interface
-(`driver::transport::Interface`), and the driver interface (`driver::uart::Interface`) that the
-driver implements. From Modern Embedded C++ it assumes inheritance, `override` and dependency
-injection; Embedded Software Testing is recommended but not required, for unit and component testing
-with stubs, applied here to a real driver.
+From Modern Embedded C++ this lecture assumes abstract classes, pure virtual methods, and dependency
+injection; Embedded Software Testing is recommended but not required, for why a seam exists and what
+a stub sits behind. Read Parts 2 and 3 of the [protocol
+spec](../../protocol/uart_register_protocol.md) beforehand.
 
 ---
 
 ## Instructions
 
 ### Preparation
-Read [Appendix A](./appendix/a_driver_and_testing.md), which explains the register read/write core,
-the driver built over it, the scripted stub, and what the provided host suite pins down.
+Read [Appendix A](./appendix/a_driver_stack.md), which lays out the full driver stack and specifies
+the three contracts you build here: the register map, the byte-transport seam, and the interface.
+These are declarations only; the driver that implements them arrives in L07, and the tests that
+check it in L08.
 
 ### During the Lecture
-We live-code the register core and then one method of the driver over the seam, running the host
-tests as they come green:
+We design the three contracts top-down, in the order the design demands rather than the order the
+files are written: the interface the application wants, the seam the driver will run over, and the
+register map both sides of the wire share. The exercises then implement that driver interface once,
+as the UART stub, so the week ends with a concrete class rather than three headers of declarations.
+The first `make test` still comes in L08, once both the `Uart` and the stub that scripts it exist.
 
-```bash
-make build-cpp        # builds fw/, runs its QAcademy Test suite
-```
-
-**The 60 minutes.** We type `readReg` and `writeReg`, which are the whole protocol in about sixty
-lines and the one place byte order can go wrong, and then `read()`, because the poll, read and
-separate pop is the L04 contract showing up on the other side of the wire. The remaining public
-methods follow the same shape, and they, the scripted `driver::transport::Stub` and the blocking
-helpers are left to the exercises. This is the heaviest C++ session, so it is the one where the
-split matters most.
+**The 60 minutes.** Declarations type quickly, so all three headers are written live: there is more
+discussion here than typing, and the discussion is the point. The UART stub is the exercise. It is
+the first concrete class of the C++ half and about as long as the three headers together, but it is
+buffer bookkeeping rather than design, and you now have the interface it must satisfy.
 
 ### After the Lecture
-Work through the [exercises](./appendix/b_exercises.md): implement the `Uart` driver, build the
-scripted stub, get the host suite green, then add the blocking helpers. The demo (`main.cpp`) is
-provided, listed in full in [Exercise 3.2](./appendix/b_exercises.md#exercise-32---the-provided-demo),
-so copy it in and run it to see them exercised end to end.
+Work through the [exercises](./appendix/b_exercises.md): build `driver/uart/register_map.hpp`,
+`driver/uart/interface.hpp` and `driver/transport/interface.hpp`, keeping the names the L08 tests
+will bind to, then write `driver/uart/stub.hpp` against the interface you just declared.
 
 ---
 
 ## Evaluation
-* A `writeReg()` sends the four data bytes least significant first: what does the peripheral do with
-  the value, and which test catches the byte-order mistake?
-* Why is the driver tested against a scripted `driver::transport::Stub` rather than the real SPI at
-  this stage, and what class of bug does that let you find first?
-* The read path is poll `STATUS`, read `RX_DATA`, write `RX_POP`: what breaks if the driver skips
-  the `RX_POP`, and what does the stub script assert to catch it?
+* Why is the transport seam placed at the raw-byte level rather than exposing `readReg` and
+  `writeReg` directly, and what does the byte-level choice let a stub do?
+* `write` and `read` are non-blocking and report whether they did anything: which L05 `STATUS` bits
+  make that possible, and why is a non-blocking core easier to test than a blocking one?
+* The register map is written once in VHDL (`uart_def.vhd`) and once in C++ (`register_map.hpp`):
+  what goes wrong if the two disagree, and at which stage would you first notice?
 
 ---
 
 ## Next Lecture
-The bottom layer becomes real: the AVR's own `SPCR` / `SPSR` / `SPDR`, `AvrSpi` implementing
-`driver::transport::Interface`, and what a freestanding target removes. The driver, interface, and
-register map all run unchanged.
+The contracts get an implementation: the `Uart` driver over the transport interface, and the
+register read/write protocol underneath it - the 5-byte transaction, most significant byte first.
+The stub that verifies it on the host follows in L08.
 
 ---
 

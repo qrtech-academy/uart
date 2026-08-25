@@ -1,198 +1,140 @@
 # Appendix B
 
 ## Exercises
-These exercises build the driver's three contracts from [Appendix A](./a_driver_stack.md): the
-register map, the transport interface, and the driver interface. All three are header-only
-declarations, so there is nothing to run yet; L06 implements the driver over them and brings the
-first tests. For now the check is simply that each header compiles.
+Exercise 1 reinforces [Appendix A](./a_uart_regs.md), and Exercise 2 completes `uart_top` from
+[L01 Appendix B](../../L01/appendix/b_uart_top.md). The `fifo` the register bank owns was built in
+[L04](../../L04/appendix/a_fifo.md), so it is already in `hw/` and ready to instantiate. Build each
+module from its appendix and check it with the provided testbench, run from `hw/` (see
+[`hw/README.md`](../../../hw/README.md)).
 
-Work in `fw/`. Create the following files:
+---
 
-```text
-include/
-    driver/
-        uart/
-            register_map.hpp
-            interface.hpp
-            stub.hpp
-        transport/
-            interface.hpp
+## Exercise 1 - `uart_regs`
+**a)** Write your own `uart_regs.vhd` from [Appendix A](./a_uart_regs.md)'s specification and run its
+testbench:
+
+```bash
+cd hw
+ghdl -a --std=93 uart_def.vhd fifo.vhd uart_regs.vhd uart_regs_tb.vhd
+ghdl -e --std=93 uart_regs_tb
+ghdl -r --std=93 uart_regs_tb --assert-level=error
 ```
 
-The register map and the driver interface live in the `driver::uart` namespace; the transport
-interface lives in `driver::transport`. The names below are the contract the L06 tests bind to, so
-keep them as written.
+`uart_def.vhd` (the register map) and `fifo.vhd` come first because `uart_regs` reads the package
+and instantiates two FIFOs.
 
-**Write it AVR-portable.** These headers compile on the host (g++) now and, from L07, on the
-ATmega328P. **We deliberately skip several modern C++ features here because the AVR toolchain does
-not support them**, and the same driver code has to build for both targets, so stay on the subset
-that toolchain accepts. The reference point is the AVR/GNU C++ compiler bundled with Microchip
-Studio, which is several GCC releases behind a desktop g++; something compiling on your host, or
-even on a Linux avr-g++, does not mean it will compile there.
+**b)** Make `RX_DATA` pop the FIFO on read (advance `tail` whenever that index is read). Re-run. The
+"a bare `RX_DATA` read must not pop" check fails; explain, in terms of the SPI transport's abort
+rule, why a read with a side effect is a genuinely harder thing to get right than the pure read
+plus separate `RX_POP`.
 
-Include `<stdint.h>`, and `<stddef.h>` if you need `size_t`, and use the bare types `uint8_t`,
-`uint16_t`, `uint32_t` and `size_t`: the AVR toolchain ships no C++ standard library, so there is
-no `<cstdint>` and no `std::` namespace at all, and anything reaching for either will fail.
+**c)** `STATUS` is computed, not stored. Name the four things each of its bits is derived from, and
+say why none of them can simply be a stored register that the datapath writes.
 
-Write namespaces as nested **blocks**, `namespace driver { namespace uart { ... } }`, because the
-compact C++17 form `namespace driver::uart { ... }` does not compile there. Leave out
-`[[nodiscard]]`, which it rejects for the same reason. What you can rely on is `noexcept`,
-`override`, `final`, `= default`, and pure `= 0`.
+**d)** The bank acts on every `reg_write` it sees as a real commit. What does it rely on the
+provided SPI bridge to guarantee for that to be safe, and what would break if a half-finished
+(aborted) transaction could reach it as a `reg_write`?
 
 ---
 
-# Exercise Set 1 - The register map
+## Exercise 2 - `uart_top`
+**a)** You built the `uart_top` skeleton in L01 and added `baud_gen`, `uart_tx`, `sync` and `uart_rx`
+across L02, L03 and L04, declaring each block's signals as you went. Now do it once more for
+`uart_regs`, the last block the top was waiting for. Three signals are new here:
 
-## Exercise 1.1 - `register_map.hpp`
-In `include/driver/uart/register_map.hpp`, transcribe the register map from [Part 2 of the protocol
-spec](../../../protocol/uart_register_protocol.md) as `constexpr` constants. Plain `constexpr`, not
-`inline constexpr`: inline *variables* are a C++17 feature the AVR toolchain does not have. At
-namespace scope `constexpr` already implies internal linkage, so each translation unit gets its own
-copy of a compile-time constant, which is exactly what you want and costs nothing. These are the
-same values `uart_def.vhd` holds on the other side of the wire; a mismatch is a bug you would only
-find on the bench.
+| Signal | Type | Driven by | Read by |
+|---|---|---|---|
+| `tx_empty` | `std_logic` | `uart_regs` | the feeder below |
+| `rx_full`  | `std_logic` | `uart_regs` | nothing, in this build |
+| `tx_pop`   | `std_logic` | the feeder below | `uart_regs` |
 
-### a) Register indices
-In a nested namespace `reg`, add one `uint8_t` constant per register index, each one the register's
-offset divided by 4: `STATUS = 0`, `CTRL = 1`, `BAUD_DIV = 2`, `TX_DATA = 3`, `RX_DATA = 4`,
-`RX_POP = 5` and `ERROR_FLAGS = 6`.
+Every other port below is a signal you already declared in L01, L02, L03 or L04 - which is the point
+of having declared them where they were needed.
 
-### b) STATUS bit positions
-In a nested namespace `status`, add one `uint8_t` **bit-position** constant per `STATUS` bit, meaning
-the bit's index rather than a mask: `TX_READY = 0`, `RX_VALID = 1`, `ERROR = 2` and `TX_IDLE = 3`.
-These are the same positions `uart_def.vhd` defines, so the two sides agree.
+![Module `uart_regs`](./images/uart_regs.png)
 
-You form a mask by shifting at the use site: `1U << status::TX_READY` tests that bit, and
-`status & (1U << status::RX_VALID)` is non-zero when RX has data.
+| # | `uart_regs` port | Dir | Type | Connect to |
+|---|---|---|---|---|
+| 1  | `clock`      | in  | `std_logic`                     | `clock` |
+| 2  | `reset_s2_n` | in  | `std_logic`                     | `reset_s2_n` |
+| 3  | `reg_addr`   | in  | `std_logic_vector(3 downto 0)`  | `reg_addr` (L01) |
+| 4  | `reg_wdata`  | in  | `std_logic_vector(31 downto 0)` | `reg_wdata` (L01) |
+| 5  | `reg_write`  | in  | `std_logic`                     | `reg_write` (L01) |
+| 6  | `tx_pop`     | in  | `std_logic`                     | `tx_pop` |
+| 7  | `rx_byte`    | in  | `std_logic_vector(7 downto 0)`  | `rx_byte` (L04) |
+| 8  | `rx_push`    | in  | `std_logic`                     | `rx_push` (L04) |
+| 9  | `tx_busy`    | in  | `std_logic`                     | `tx_busy` (L02) |
+| 10 | `frame_err`  | in  | `std_logic`                     | `frame_err` (L04) |
+| 11 | `reg_rdata`  | out | `std_logic_vector(31 downto 0)` | `reg_rdata` (L01) |
+| 12 | `baud_div`   | out | `std_logic_vector(15 downto 0)` | `baud_div` (L02) |
+| 13 | `tx_byte`    | out | `std_logic_vector(7 downto 0)`  | `tx_byte` (L02) |
+| 14 | `tx_empty`   | out | `std_logic`                     | `tx_empty` |
+| 15 | `rx_full`    | out | `std_logic`                     | `rx_full` |
 
-### c) CTRL and error bit positions
-In a nested namespace `ctrl`, add `ENABLE = 0` as a `uint8_t` bit position. In a nested namespace
-`error`, add `FRAMING = 0`, `PARITY = 1` and `OVERRUN = 2`, all `uint8_t` bit positions. The VHDL
-package also defines parity, stop-bit and interrupt-mask positions in `CTRL`; this driver does not
-use them yet, so it does not declare them.
+```vhdl
+-- The register bank: the bridge's bus on one side, the datapath on the other. This closes
+-- every loop in the design - the bus now has something answering on it, the transmitter has
+-- a byte source, and the receiver has somewhere to put what it recovers.
+uart_regs: entity work.uart_regs
+    port map(clock, reset_s2_n, reg_addr, reg_wdata, reg_write, tx_pop, rx_byte, rx_push,
+             tx_busy, frame_err, reg_rdata, baud_div, tx_byte, tx_empty, rx_full);
+```
 
-Positions rather than masks keep the C++ constants identical to the VHDL `uart_def.vhd`, which also
-stores positions, and the one-line `1U << pos` at each use site is explicit about which bit you mean.
+Delete the `reg_rdata <= (others => '0');` placeholder from L01 in the same edit: the bank drives
+that vector now, and leaving the placeholder in gives it two drivers.
 
----
+With `tx_empty` finally driven, the **TX feeder** can be written, the one piece of real logic the top
+has been waiting to hold. It is two concurrent statements:
 
-# Exercise Set 2 - The transport interface
+```vhdl
+-- The TX feeder: load the transmitter whenever a byte is queued and the line is free, and pop
+-- the FIFO on that same edge, so exactly one byte moves per idle transmitter. The instant the
+-- transmitter goes busy, tx_load drops - which is what stops a second byte following it.
+tx_load <= (not tx_empty) and (not tx_busy);
+tx_pop  <= tx_load;
+```
 
-## Exercise 2.1 - `driver::transport::Interface`
-In `include/driver/transport/interface.hpp`, design an abstract class `driver::transport::Interface`
-representing a byte-level SPI transport. It exchanges raw bytes over one transaction and knows
-nothing about registers. All methods except the destructor shall be pure virtual (`= 0`).
+Note why this could not have been written earlier: `tx_empty` comes from the register bank and
+`tx_busy` from the transmitter, so the feeder needs a block from L02 and a block from L05 to exist
+at the same time. That is the general shape of this design, and the reason signals are declared
+where they are needed rather than all at once in L01.
 
-### a) Destructor
-Add a destructor that is virtual, marked `noexcept`, and implemented using `= default`.
+The receive side needs no equivalent: `uart_rx`'s `valid` went straight to `rx_push` in L04, so the
+receiver pushes its own byte into the RX FIFO.
 
-### b) Begin a transaction
-Add a pure virtual method `begin()` that starts a transaction by pulling `SS` low. It takes no
-parameters, returns nothing, and cannot throw exceptions.
+Then run the system testbench:
 
-### c) Exchange one byte
-Add a pure virtual method `transfer()` that exchanges a single byte in full duplex. It takes one
-parameter of type `uint8_t`, the byte to send, returns the `uint8_t` received at the same time, and
-cannot throw exceptions.
+```bash
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd sync.vhd fifo.vhd uart_tx.vhd \
+     uart_rx.vhd uart_regs.vhd spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd uart_top_tb.vhd
+ghdl -e --std=93 uart_top_tb
+ghdl -r --std=93 uart_top_tb --assert-level=error
+```
 
-### d) End a transaction
-Add a pure virtual method `end()` that ends the transaction by releasing `SS`. It takes no
-parameters, returns nothing, and cannot throw exceptions.
+Everything the design contains appears on that line, in dependency order, including `fifo`, which
+`uart_top` never instantiates itself: `uart_regs` owns both of them. With the last block in place,
+the system testbench elaborates the whole peripheral for the first time.
 
----
+If `uart_top_tb` fails on the `BAUD_DIV` read-back with every `1` bit missing from the value you
+wrote, and the run is littered with `NUMERIC_STD.TO_INTEGER: metavalue detected` warnings, the L01
+placeholder is still there: each `'1'` the bank drives is resolving against its `'0'` to `'X'`.
 
-# Exercise Set 3 - The driver interface
+**b)** The provided `reset_sync` asserts asynchronously but releases synchronously. Explain what
+could go wrong if it released `reset_s2_n` asynchronously too (the moment `reset_n` rises), and why
+asserting asynchronously is nonetheless the right choice.
 
-## Exercise 3.1 - `Interface`
-In `include/driver/uart/interface.hpp`, design an abstract class `driver::uart::Interface`, the
-driver's public API. All methods except the destructor shall be pure virtual.
+**c)** Why can `reset_sync` not just be a `sync` instance, given that both are two flip flops in
+series? Name the port that settles it, and describe the circular dependency you would create by
+trying.
 
-### a) Destructor
-Add a destructor that is virtual, `noexcept`, and `= default`.
+**d)** Study the TX feeder you wrote in a): `tx_load <= (not tx_empty) and (not tx_busy)`. Argue
+that it loads **exactly one** byte each time the transmitter goes idle with the FIFO non-empty,
+never zero and never two. What holds `tx_load` low for the rest of the frame?
 
-### b) Configure
-Add a pure virtual method `configure()` that sets the baud divider and enables the peripheral. It
-takes one parameter of type `uint16_t`, the baud divider, returns nothing, and cannot throw
-exceptions.
-
-### c) Write a byte
-Add a pure virtual method `write()` that attempts to send one byte. It takes one parameter of type
-`uint8_t`, returns `true` if the byte was accepted or `false` if the transmit FIFO was full, and
-cannot throw exceptions.
-
-### d) Read a byte
-Add a pure virtual method `read()` that attempts to receive one byte. It takes a reference to a
-`uint8_t` where the received byte will be stored, returns `true` if a byte was received and `false`
-otherwise, and cannot throw exceptions.
-
-### e) Status and errors
-Add three more pure virtual methods, none of which throws. `status()` returns the raw `STATUS`
-register as a `uint32_t`, takes no parameters, and does not modify the object (`const`).
-`errorFlags()` returns the raw `ERROR_FLAGS` register as a `uint32_t`, also taking no parameters and
-also `const`. `clearErrors()` clears the error flags, takes no parameters, and returns nothing.
-
----
-
-# Exercise Set 4 - The UART stub
-
-## Exercise 4.1 - `driver::uart::Stub`
-The three headers above are all declarations. This one is the first concrete class of the C++ half,
-and it is worth writing now rather than later, because it needs nothing except the interface you
-just declared: a **UART stub**, a `driver::uart::Interface` a test can drive.
-
-It plays back scripted bytes on `read()` and records the bytes an application `write()`s, so a test
-can queue input, run something over it, and check what came out. It is the same idea as the
-`driver::transport::Stub` you write in L06, one layer up: that one fakes the wire under the driver,
-this one fakes the driver under an application. Write it in `include/driver/uart/stub.hpp`,
-header-only, in the `driver::uart` namespace, in the same AVR-portable style as everything else here;
-it holds no dynamic memory, so it compiles for the target as well as the host.
-
-Because a UART is a byte stream, both directions are **FIFO**: bytes are received and recorded in the
-order they arrive. But a test queues a bounded number of bytes and reads them once, so the storage is
-two plain **linear buffers** with no wraparound to reason about: two fixed `uint8_t` arrays, each
-with a length. The **RX** buffer is read front-to-back through an advancing index, so `read()` hands
-back the byte at the index and advances it, and the length is how many bytes were queued. The **TX**
-buffer is a write-only append log, so `write()` appends one byte and bumps the length, and the test
-reads the whole log back afterward.
-
-**Member variables**, using a fixed capacity `OurBufLen` and `uint8_t` throughout, with no `size_t`.
-`myRxBuf[OurBufLen]`, with `myRxLen` and `myRxIdx`, holds the scripted bytes to receive and tracks
-how far `read()` has advanced through them. `myTxBuf[OurBufLen]`, with `myTxLen`, holds the bytes the
-application has sent, appended in order.
-
-The third is `bool& myStop`, a reference to a caller-owned flag, set `true` when `read()` reaches the
-end of the RX buffer. That one needs a word of explanation this early: in L08 you write an
-application whose `run(const bool& stop)` loops until the flag is set, and a single-threaded test has
-no other way to end it. The stub feeds every scripted byte and then, once the input is exhausted,
-asks the loop to stop. Because it is a reference member, copy and move are deleted, as is the default
-constructor, since you need a stop flag to build one.
-
-**Methods**, the six from `driver::uart::Interface` plus scripting helpers. The constructor,
-`Stub(bool& stop)`, is `explicit`, stores the stop reference, and leaves both buffers empty.
-`configure(uint16_t)` does nothing, since the stub has no baud rate to set. `write(uint8_t byte)`
-appends `byte` to `myTxBuf` if there is room and returns `true`, as a UART with room in its TX FIFO
-would, and returns `false` if the buffer is full. `read(uint8_t& byte)` hands back
-`myRxBuf[myRxIdx++]` and returns `true` when `myRxIdx < myRxLen`, and otherwise sets `myStop` to
-`true` and returns `false`; that empty-case flag is the loop's off switch. `status()`, `errorFlags()`
-and `clearErrors()` are trivial, returning `0` or doing nothing, because the applications tested this
-way drive the UART through `read()` and `write()` rather than the status register.
-
-Three helpers exist for the tests. `injectRxByte(uint8_t byte)` appends one scripted byte to
-`myRxBuf`, returning `false` if it is full, and is called once per byte the application should
-receive. `txBuf()` and `txLen()` return a pointer to the recorded TX bytes and how many there are, so
-a test reads `txBuf()[i]` for `i < txLen()` in the order they were sent. And `reset()` zeroes both
-lengths, the read index and the stop flag, so the stub can be reused across tests.
-
-Nothing exercises it yet, which is the honest state of a test double written before the thing it
-doubles for. It compiles, and in L08 it becomes the entire test harness for `app::EchoNode`.
-
----
-
-## What's ahead
-In L06 you implement `driver::uart::Uart`, which inherits this interface and drives it through the
-register protocol over a `driver::transport::Interface`, and you write the scripted
-`driver::transport::Stub` and the host tests that check it. The UART stub written here waits until
-L08, where it becomes the test harness for `app::EchoNode`.
+**e)** The system testbench loops `tx` back to `rx`. Trace a single byte: SPI write of `TX_DATA`,
+through the FIFO and transmitter, out `tx`, back in `rx`, through the receiver into the RX FIFO, and
+out again on an SPI read of `RX_DATA`. Name the block that acts at each step.
 
 ---
 

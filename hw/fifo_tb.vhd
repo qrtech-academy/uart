@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- Testbench for fifo (L03).
+-- Testbench for fifo (L04).
 --
 -- Fills a depth-4 FIFO, checks full asserts and a further write is dropped, then drains it and
 -- checks the bytes come back in order and empty asserts. Finally pushes and pops on the same edge

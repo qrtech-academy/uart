@@ -24,7 +24,7 @@ exactly what the driver already does when `write` returns `false` on a full FIFO
 **iostreams and most of the standard library** go, so there is no `std::cout` and logging goes out a
 real UART instead, as described below.
 
-The payoff of the AVR-portable style from L05 lands here. Because the register map, `Interface`,
+The payoff of the AVR-portable style from L06 lands here. Because the register map, `Interface`,
 `Uart`, `Stub` and the blocking helpers were all written with `<stdint.h>` and bare types, no
 `std::`, nested namespace blocks, and none of the newer C++ attributes the AVR toolchain rejects,
 they cross-compile to the target **untouched**. Nothing above the seam is rewritten for the AVR;
@@ -97,7 +97,7 @@ every testbench you have run. Then **program** the board over USB-Blaster.
 To see it work with nothing else attached, jumper the peripheral's `tx` pin to its `rx` pin and let
 it echo itself. That is the same loopback `uart_top_tb` performs in simulation, running now on real
 silicon at a real 50 MHz, and it is the last thing the FPGA half needs before both chips meet on the
-bench in L08.
+bench in L10.
 
 `F_CPU` must match the board's actual clock (16 MHz on a standard Nano, set by its crystal, with the
 fuses selecting that external oscillator as the clock source), because
@@ -110,7 +110,7 @@ still checked on the host per [Appendix A](./a_avr_transport.md).
 ## What's ahead
 [Appendix C](./c_exercises.md) is the exercises: implement `AvrSpi`, write the freestanding
 bring-up `main`, add UART logging, and measure a register round trip against the 1 MHz SCK budget.
-L08 then puts both halves on the bench.
+L10 then puts both halves on the bench.
 
 ---
 

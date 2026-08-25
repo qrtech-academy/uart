@@ -72,7 +72,7 @@ UART_TX = Entity(
 )
 
 # ----------------------------------------------------------------------------------------
-# L03 - Synchronization, the receive datapath, and the queue
+# L03 - Synchronization and the receive datapath
 # ----------------------------------------------------------------------------------------
 SYNC = Entity(
     "sync",
@@ -85,6 +85,9 @@ UART_RX = Entity(
     [P("clock"), P("reset_s2_n"), P("baud_tick"), P("rx_s2")],
     [P("data_out", 8), P("valid"), P("frame_err")],
 )
+# ----------------------------------------------------------------------------------------
+# L04 - The queue
+# ----------------------------------------------------------------------------------------
 FIFO = Entity(
     "fifo",
     [P("clock"), P("reset_s2_n"), P("wdata", "WIDTH-1:0"), P("wr"), P("rd")],
@@ -93,7 +96,7 @@ FIFO = Entity(
 )
 
 # ----------------------------------------------------------------------------------------
-# L04 - The register bank
+# L05 - The register bank
 # ----------------------------------------------------------------------------------------
 UART_REGS = Entity(
     "uart_regs",
@@ -120,10 +123,13 @@ UART_REGS = Entity(
 
 # Which lecture's appendix each module's figure belongs to. A module is drawn in the lecture
 # that designs it; the three L01 entries are the provided blocks whose port tables the L01
-# exercises hand out.
+# exercises hand out. A module may appear under more than one lecture, in which case its figure
+# is written into each of their appendices: L04's exercise instantiates SYNC and UART_RX into
+# uart_top and reprints their port tables, so both figures are needed there as well as in L03.
 BY_LECTURE: dict[str, list[Entity]] = {
     "L01": [UART_TOP, RESET_SYNC, SPI_SLAVE, SPI_REG_BRIDGE],
     "L02": [BAUD_GEN, UART_TX],
-    "L03": [SYNC, UART_RX, FIFO],
-    "L04": [UART_REGS],
+    "L03": [SYNC, UART_RX],
+    "L04": [FIFO, SYNC, UART_RX],
+    "L05": [UART_REGS],
 }

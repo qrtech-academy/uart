@@ -40,13 +40,13 @@ surface before it can do harm.
 ---
 
 ## The board wrapper and Quartus
-`uart_top` passed its system testbench in simulation (L04), but a testbench is not a pin assignment.
+`uart_top` passed its system testbench in simulation (L05), but a testbench is not a pin assignment.
 To run on real silicon, `uart_top` is wrapped by **`uart_board.vhd`**, the Quartus top level that
 maps the peripheral's ports (`clock`, `reset_n`, the SPI lines, `rx`, `tx`) onto specific DE0-CV
 pins: an onboard 50 MHz clock circuit, a reset button, and GPIO-header pins for SPI and the UART.
 
 That wrapper is board I/O, not peripheral logic, so it lives with the Quartus project rather than
-in `hw/`, and it is provided. You already synthesized it and programmed the board in L07, so nothing
+in `hw/`, and it is provided. You already synthesized it and programmed the board in L09, so nothing
 about the FPGA toolchain is new here; the only change today is the loopback edit each rung of the
 ladder asks for.
 

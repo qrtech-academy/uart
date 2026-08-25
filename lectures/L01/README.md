@@ -15,7 +15,7 @@ course is filling that shell in. We cover:
   block it connects to, so the top grows one block's worth of wiring per lecture rather than
   starting with a list of names for modules that do not exist yet.
 * **What the shape costs and buys**: what a positional contract cannot catch, and how the top grows
-  across L02 through L04 until the system testbench can finally run.
+  across L02 through L05 until the system testbench can finally run.
 
 ---
 
@@ -30,7 +30,7 @@ After this lecture, participants should be able to:
 * **Derive the internal signals from the entities they connect**, rather than from a list, and apply
   the `spi_` prefix and `_s2` suffix conventions the provided modules already use.
 * **Explain top-down structural design**: why fixing the top first fixes each block's port contract,
-  and why the system testbench is gated, skipped rather than failed, until L04.
+  and why the system testbench is gated, skipped rather than failed, until L05.
 
 ---
 
@@ -54,7 +54,7 @@ their entities are where the signals you have to declare come from, and reading 
 out what wiring it implies is the habit this lecture is teaching. Appendix C tabulates the same
 ports, but as a check on your reading rather than a substitute for it. Finally, read the system
 testbench [`uart_top_tb.vhd`](../../hw/uart_top_tb.vhd) to see the contract the top must eventually
-satisfy; you will not run it until L04.
+satisfy; you will not run it until L05.
 
 ### During the Lecture
 We walk through the provided `uart_def.vhd`, then start the `uart_top` skeleton. By the end of the
@@ -81,7 +81,7 @@ Work through the [exercises](./appendix/c_exercises.md). Exercise 2 is the build
 five steps: the entity, the signals this lecture actually wires, the provided `reset_sync`, the two
 transport blocks, and the check. Exercise 1 is the reading: the register map, positions rather than
 masks, and when a swapped index would surface. Exercise 3 is the reasoning, about positional
-binding, the reset synchronizer, and a register bus that waits three lectures for its bank.
+binding, the reset synchronizer, and a register bus that waits four lectures for its bank.
 
 ---
 

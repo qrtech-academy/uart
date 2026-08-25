@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- Testbench for uart_regs (L04).
+-- Testbench for uart_regs (L05).
 --
 -- Drives the register bus directly (standing in for the SPI bridge) and models the datapath with
 -- plain signals, checking config read-back, the STATUS bits, the TX and RX FIFO paths, the

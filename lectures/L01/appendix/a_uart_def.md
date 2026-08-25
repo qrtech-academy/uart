@@ -5,7 +5,7 @@
 indices and the meaning of each `STATUS`, `CTRL` and `ERROR_FLAGS` bit, from [Part 2 of the protocol
 spec](../../../protocol/uart_register_protocol.md). Like the SPI transport, **it is given to you**;
 you write every module in this course, but not the map. It exists so the register bank (`uart_regs`,
-L04) and the testbenches can name registers and bits instead of writing bare numbers, and so the two
+L05) and the testbenches can name registers and bits instead of writing bare numbers, and so the two
 sides of the wire cannot drift apart.
 
 The C++ driver carries the same map in `register_map.hpp`, transcribed once on each side of the wire.
@@ -52,7 +52,7 @@ on the C++ side. Laid out as words, the three flag registers are:
 
 `CTRL` is the only one with bits this course does not act on, and `ERROR_FLAGS` the only one where
 two of the three have no producer yet; both are noted where they are built, in
-[L04 Appendix A](../../L04/appendix/a_uart_regs.md).
+[L05 Appendix A](../../L05/appendix/a_uart_regs.md).
 
 ---
 
@@ -74,12 +74,12 @@ synthesizable module uses it.
 ---
 
 ### Where it fits
-`uart_def` sits underneath everything that speaks in registers. `uart_regs` (L04) is the module that
+`uart_def` sits underneath everything that speaks in registers. `uart_regs` (L05) is the module that
 actually reads and writes these bits; the package only names them. `uart_top` never uses it at all,
 because the top wires the register bus without interpreting anything carried on it. Six testbenches
 analyze against the package, most of them only for `to_hex`.
 
-On the far side of the SPI wire the driver you build in L05 reaches the same registers through the
+On the far side of the SPI wire the driver you build in L06 reaches the same registers through the
 same positions. That is the point of transcribing the map twice rather than inventing it twice: the
 spec is the single source, and each language is checked against it rather than against the other.
 
@@ -88,7 +88,7 @@ spec is the single source, and each language is checked against it rather than a
 ### What's ahead
 [Appendix B](./b_uart_top.md) is the peripheral top, `uart_top`, the structural skeleton built
 against this package. The [exercises](./c_exercises.md) read `uart_def`, then build `uart_top` from
-the ground up. The datapath and register modules the top composes arrive in L02 through L04, and are
+the ground up. The datapath and register modules the top composes arrive in L02 through L05, and are
 instantiated into `uart_top` as each one lands.
 
 ---

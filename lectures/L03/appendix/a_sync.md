@@ -82,7 +82,7 @@ functional simulation would otherwise reveal, because nothing in a simulator is 
 ### Where it fits
 In `uart_top`, the `rx` pin goes through `sync` before any logic looks at it, and the receiver in
 Appendix B reads only the synchronized copy, `rx_s2`. Because `sync`'s ports are vectors even at
-`COUNT = 1`, a scalar `rx` needs a one-element signal on each side; that wiring is part of the L03
+`COUNT = 1`, a scalar `rx` needs a one-element signal on each side; that wiring is part of the L04
 exercise that adds the receive path to the top.
 
 ---

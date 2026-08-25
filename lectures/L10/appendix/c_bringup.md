@@ -45,7 +45,7 @@ The adapter's USB goes to the PC, where a terminal at 115200 8N1 is the far end 
 ## Exercise 2 - Program the FPGA and flash the Nano
 Two chips, two toolchains, both of which you have already used. For the **DE0-CV**, re-synthesize
 `uart_board.vhd`, the provided Quartus top level wrapping your `uart_top`, and program the FPGA over
-USB-Blaster exactly as in L07; confirm the design fits and that the pin assignments match the wiring
+USB-Blaster exactly as in L09; confirm the design fits and that the pin assignments match the wiring
 table above. For the **Nano**, flash the ATmega firmware:
 
 ```bash
@@ -104,9 +104,9 @@ The closing exercise, and the course's summary. Take a single character typed in
 trace it through **every** layer, out and back, naming each module and the lecture that built it.
 
 It travels in on the data plane, from the PC terminal to the USB-serial adapter to the DE0-CV's `rx`
-pin, into `uart_rx` (L03), then the RX FIFO (`fifo`, L03) inside `uart_regs` (L04). It then crosses
-the control plane, out through `spi_reg_bridge` and `spi_slave` (provided) to `AvrSpi` (L07), up
-through `readReg` and `Uart` (L06), and into `EchoNode` (L08). Finally it goes back out, from
+pin, into `uart_rx` (L03), then the RX FIFO (`fifo`, L04) inside `uart_regs` (L05). It then crosses
+the control plane, out through `spi_reg_bridge` and `spi_slave` (provided) to `AvrSpi` (L09), up
+through `readReg` and `Uart` (L07), and into `EchoNode` (L10). Finally it goes back out, from
 `Uart::write()` to `writeReg()` to `AvrSpi`, into `uart_regs` and the TX FIFO, through `uart_tx`
 (L02) to the DE0-CV's `tx` pin, and back via the adapter to the terminal.
 

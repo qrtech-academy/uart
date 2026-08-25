@@ -1,86 +1,89 @@
-# L05 - The Driver's Contracts
+# L05 - The Register Bank
 
 ## Agenda
-This lecture crosses from VHDL to C++, and it stays entirely with *shapes*: the driver stack top to
-bottom, and the three abstractions it rests on, before any algorithm is written.
+This lecture is about the distance between port semantics and register semantics. The TX and RX cores
+speak in pulses and levels, while the [register map](../../protocol/uart_register_protocol.md)
+promises sticky, poll-able bits and FIFO-backed data; bridging the two is the whole job. We cover:
 
-* **The register map in C++**: the seven register indices and the `STATUS` / `CTRL` / `ERROR_FLAGS`
-  bits from [Part 2 of the spec](../../protocol/uart_register_protocol.md), transcribed as named
-  constants the whole driver shares with `uart_def.vhd`.
-* **The transport interface**, `driver::transport::Interface`: a byte-level SPI seam of `begin`,
-  `transfer` and `end`. We spend time on why putting that seam at the byte level is exactly what
-  makes the driver host-testable.
-* **The driver interface**, `driver::uart::Interface`: the abstract, non-blocking API the
-  application codes against, being configure, write, read, poll status and clear errors.
-* **A first implementation of it**, `driver::uart::Stub`: a test double that plays back scripted
-  bytes and records what was written. It needs nothing but the interface, so it can be written the
-  moment the interface exists, and it keeps this session from being declarations only.
+* **The two FIFOs from L04**, one per direction, instantiated by the bank rather than by the top.
+* **The register bank** (`uart_regs.vhd`) around them: `STATUS` computed straight from the FIFO
+  flags, the `ERROR_FLAGS` latches, `CTRL` and `BAUD_DIV` as plain storage, the write-triggered
+  `TX_DATA` push, and the read-then-pop RX path in which `RX_DATA` is a pure read and `RX_POP` is
+  the separate, abort-safe write that advances the FIFO.
+* **Completing `uart_top`**: instantiating `uart_regs`, which owns both FIFOs, into the skeleton
+  from L01, the last block it was waiting for, so the full system testbench runs for the first time.
 
 ---
 
 ## Objectives
 After this lecture, participants should be able to:
 
-* **Transcribe the register map** into `register_map.hpp` as `constexpr` constants, and explain why
-  a value here that disagrees with the hardware is a bench-only bug.
-* **Design the transport interface** (`driver::transport::Interface`) and say what it buys: the same
-  driver over a stub in L06 and over the real AVR SPI in L07, with nothing above the seam changing.
-* **Turn the register-level flow into a clean, abstract `Interface`**, and explain why non-blocking
-  `write` and `read` map directly onto the FIFO-backed `STATUS` bits from L04.
-* **Implement that interface once**, as a `Stub` backed by two linear buffers, and explain what a
-  test double has to be faithful about and what it may ignore.
+* **Explain why a single-cycle error pulse cannot be polled**, and implement pulse-to-level latching
+  with a defined set and clear pair for each `ERROR_FLAGS` bit, while deriving every `STATUS` bit
+  combinationally from the FIFO flags instead.
+* **Explain why popping a FIFO on read would need write-like commit-and-abort discipline**, and why
+  splitting the pure read (`RX_DATA`) from the explicit pop (`RX_POP`) avoids it.
+* **Instantiate the register bank into `uart_top` positionally**, completing the peripheral so that
+  it passes the system testbench.
 
 ---
 
 ## Prerequisites
-From Modern Embedded C++ this lecture assumes abstract classes, pure virtual methods, and dependency
-injection; Embedded Software Testing is recommended but not required, for why a seam exists and what
-a stub sits behind. Read Parts 2 and 3 of the [protocol
-spec](../../protocol/uart_register_protocol.md) beforehand.
+This lecture completes what L01 started, so you need the `uart_top` skeleton and the `uart_def`
+package from it, and the datapath blocks from L02 and L03, `baud_gen`, `uart_tx` and `uart_rx`,
+along with the pulses and levels they expose, wired into the top across L02 and L04. You also need
+the `fifo` from L04, which this bank instantiates twice. Read the full [protocol
+spec](../../protocol/uart_register_protocol.md) beforehand, especially **Register Semantics** and
+**Part 3 - The SPI Transport**, which you instantiate but do not write.
 
 ---
 
 ## Instructions
 
 ### Preparation
-Read [Appendix A](./appendix/a_driver_stack.md), which lays out the full driver stack and specifies
-the three contracts you build here: the register map, the byte-transport seam, and the interface.
-These are declarations only; the driver that implements them, and the tests that check it, arrive in
-L06.
+Read [Appendix A](./appendix/a_uart_regs.md) for `uart_regs`; that is the specification you build it
+from. The two FIFOs it owns were built in [L04](../L04/appendix/a_fifo.md) and are already in `hw/`.
+Revisit [L01 Appendix B](../L01/appendix/b_uart_top.md) for the top you now complete. Then read the
+provided testbench [`uart_regs_tb.vhd`](../../hw/uart_regs_tb.vhd), along with the system testbench
+[`uart_top_tb.vhd`](../../hw/uart_top_tb.vhd), which plays SPI transactions through the provided
+transport and watches a byte cross the whole peripheral.
 
 ### During the Lecture
-We design the three contracts top-down, in the order the design demands rather than the order the
-files are written: the interface the application wants, the seam the driver will run over, and the
-register map both sides of the wire share. The exercises then implement that driver interface once,
-as the UART stub, so the week ends with a concrete class rather than three headers of declarations.
-The first `make test` still comes in L06, once the `Uart` exists to be tested.
+We live-code the heart of `uart_regs.vhd`, then instantiate `uart_regs` into `uart_top`. With every
+block present, the system testbench elaborates and runs:
 
-**The 60 minutes.** Declarations type quickly, so all three headers are written live: there is more
-discussion here than typing, and the discussion is the point. The UART stub is the exercise. It is
-the first concrete class of the C++ half and about as long as the three headers together, but it is
-buffer bookkeeping rather than design, and you now have the interface it must satisfy.
+```bash
+make build-vhdl        # from the repository root: runs every testbench whose modules exist
+```
+
+**The 60 minutes.** We type the two ideas and run the payoff: `STATUS` computed straight from the
+FIFO flags rather than stored, and the `RX_DATA` / `RX_POP` split with the reasoning behind it. Then
+we instantiate `uart_regs` into `uart_top` and watch the system testbench run for the first time,
+which is the moment the FPGA half becomes a thing that works. The remaining register decode is seven
+near-identical cases and the `ERROR_FLAGS` latch is one more; both are left to the exercises.
 
 ### After the Lecture
-Work through the [exercises](./appendix/b_exercises.md): build `driver/uart/register_map.hpp`,
-`driver/uart/interface.hpp` and `driver/transport/interface.hpp`, keeping the names the L06 tests
-will bind to, then write `driver/uart/stub.hpp` against the interface you just declared.
+Work through the [exercises](./appendix/b_exercises.md): build `uart_regs`, then instantiate the
+bank into the `uart_top` skeleton from L01, delete the `reg_rdata` placeholder you left there (L01
+Appendix C, Exercise 2d), and run the full system testbench.
 
 ---
 
 ## Evaluation
-* Why is the transport seam placed at the raw-byte level rather than exposing `readReg` and
-  `writeReg` directly, and what does the byte-level choice let a stub do?
-* `write` and `read` are non-blocking and report whether they did anything: which L04 `STATUS` bits
-  make that possible, and why is a non-blocking core easier to test than a blocking one?
-* The register map is written once in VHDL (`uart_def.vhd`) and once in C++ (`register_map.hpp`):
-  what goes wrong if the two disagree, and at which stage would you first notice?
+* Why can `STATUS` bit 1 (RX valid) not simply be wired to the receiver's "byte ready" pulse?
+* A `TX_DATA` write arrives while `STATUS` bit 0 (TX ready) is clear: what happens, and why is
+  dropping the byte the right choice here?
+* `SS` rises after the third byte of an `RX_POP` write: what must the peripheral do, and which part
+  of the transport contract guarantees it?
+* If reading `RX_DATA` returns a byte but never advances the FIFO, what did the driver forget, and
+  what would go wrong if `RX_DATA` popped on its own?
 
 ---
 
 ## Next Lecture
-The contracts get an implementation: the `Uart` driver over the transport interface, the register
-read/write protocol, and a scripted `driver::transport::Stub` that verifies the whole driver on the
-host with no hardware.
+The FPGA half is done. The driver stack begins, on the host, with no hardware: the
+`driver::uart::Interface` and its `driver::transport::Interface` seam, then a first
+`driver::uart::Stub` written against that interface.
 
 ---
 

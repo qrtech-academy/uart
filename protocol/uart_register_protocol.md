@@ -1,8 +1,8 @@
 # UART Register Protocol
 
-This is the contract at the centre of the course. The FPGA side (L01-L04) implements it as a
-peripheral behind the provided SPI transport; the MCU side (L05-L07) implements it as a master;
-and L08 proves the two agree. Both halves are written against this document, not against each
+This is the contract at the centre of the course. The FPGA side (L01-L05) implements it as a
+peripheral behind the provided SPI transport; the MCU side (L06-L09) implements it as a master;
+and L10 proves the two agree. Both halves are written against this document, not against each
 other's code; if an implementation and this document disagree, the implementation is wrong.
 
 There are two layers here, and they are independent:
@@ -74,7 +74,7 @@ each register are meaningful; upper bits read back as zero and are ignored on wr
 Indices 7-15 are reserved: a read returns `0x00000000`, a write is ignored.
 
 ### What this course implements, and what it reserves
-The map above is the full contract. The peripheral built in L01-L04 implements the part of it that
+The map above is the full contract. The peripheral built in L01-L05 implements the part of it that
 carries data, and stores but does not act on the rest. Specifically:
 
 * **`CTRL` is stored and read back, but gates nothing.** The register bank has no `ctrl` output, so
@@ -85,7 +85,7 @@ carries data, and stores but does not act on the rest. Specifically:
   the two IRQ mask bits mask nothing. The system is poll-only, end to end.
 * **Only the framing error flag has a producer.** The receiver emits `frame_err` and nothing else,
   so `ER_PARITY` and `ER_OVERRUN` are defined positions that always read zero. Parity detection and
-  overrun detection are the natural extensions of L03 and L04 respectively.
+  overrun detection are the natural extensions of L03 and L05 respectively.
 
 These are reservations, not omissions: the positions are fixed so that an implementation which
 adds them later stays compatible with both halves as written.
@@ -102,7 +102,7 @@ This mirrors the poll-status / read-data / acknowledge shape of a typical hardwa
 ## Register Semantics (what the register bank must implement)
 The TX and RX cores expose single-cycle pulses and levels (L02-L03); the register map promises
 sticky, poll-able bits and FIFO-backed data. Bridging the two is the register bank's whole job
-(L04):
+(L05):
 
 * **`STATUS` bit 0 (TX ready)**: a level - the TX FIFO is not full. A `TX_DATA` write while it is
   clear is dropped (there is no room), which is why the driver must poll it first.
@@ -116,7 +116,7 @@ sticky, poll-able bits and FIFO-backed data. Bridging the two is the register ba
 * **`RX_DATA` vs `RX_POP`**: `RX_DATA` is a *pure read* - it returns the front byte and has no side
   effect, so it obeys the same latch-once rule as `STATUS`. Popping the FIFO is a *separate write*
   (`RX_POP`), so that the side effect is a committed, abort-safe action and never a by-product of
-  reading. This split is the point of L04: **a read that popped a FIFO would need write-like
+  reading. This split is the point of L05: **a read that popped a FIFO would need write-like
   commit-and-abort discipline; keeping the read pure and the pop explicit avoids that entirely.**
 * **`BAUD_DIV` / `CTRL`**: plain read/write registers; the cores sample them continuously, so a
   change takes effect on the next frame. Reconfiguring mid-frame is the driver's problem, not the
@@ -136,7 +136,7 @@ not write it), but it is not magic.
 | Bit order | MSB first, in every byte. |
 | SCK frequency | <= 1 MHz (the Nano uses f_osc/16 = 1 MHz). |
 | SS | Active low; one transaction per low period. |
-| Voltage | The Nano is 5 V, the DE0-CV 3.3 V; every SPI line crosses a level shifter (L08). |
+| Voltage | The Nano is 5 V, the DE0-CV 3.3 V; every SPI line crosses a level shifter (L10). |
 
 ### Transactions
 Every transaction is exactly **5 bytes**: one command byte, then four data bytes. `SS` falls

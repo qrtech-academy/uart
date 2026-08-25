@@ -60,7 +60,7 @@ where the architecture's positional `port map` into `spi_slave` now hands the SP
 `mosi` and the data line to `sclk`.
 
 **Where it surfaces.** The first check anywhere in the course that fails is **`uart_top_tb`, at the
-end of L04** - the first time the system testbench runs at all. Before that it is *skipped*, not
+end of L05** - the first time the system testbench runs at all. Before that it is *skipped*, not
 passed: its datapath blocks do not exist. So a wiring mistake made in L01 sits undetected for three
 lectures and then arrives as an SPI transaction that produces nothing.
 *(1 mark)*
@@ -103,7 +103,7 @@ For a read-back of `0x00000004`, the low four bits carry:
 and into the bench's captured word, so `rd(15 downto 0) = x"0004"` is false and the BAUD_DIV
 read-back assertion fires. The symptom generalizes: **every bit the bank drives `'1'` comes back
 unknown**, so the value looks like the one you wrote with all its ones missing. That is the
-signature to recognize, and the fix is to delete the L01 placeholder line, exactly as the L04
+signature to recognize, and the fix is to delete the L01 placeholder line, exactly as the L05
 exercise instructs. *(1 mark)*
 
 An answer that says "two drivers, so it fails" without naming resolution or without the per-bit
@@ -133,7 +133,7 @@ baud_div_int <= 1 when is_x(baud_div) or unsigned(baud_div) = 0
               else to_integer(unsigned(baud_div));
 ```
 
-* `is_x(baud_div)` covers the **metavalue** case: before L04 nothing drives `baud_div`, so it sits
+* `is_x(baud_div)` covers the **metavalue** case: before L05 nothing drives `baud_div`, so it sits
   at all-`'U'`.
 * `unsigned(baud_div) = 0` covers the **legitimate zero** that arrives once `uart_regs` exists:
   `BAUD_DIV` holds whatever the bank reset it to until software writes a divider, and that reset
@@ -510,7 +510,7 @@ Four things carry the marks, and each is a place a plausible answer goes wrong:
   where it was; incrementing in one branch and decrementing in another, unconditionally, is the
   classic bug here and it desynchronizes the flags from the contents within one cycle.
 * **`rdata` is a concurrent assignment from `tail`, not something the process writes.** That is the
-  look-then-advance contract L04 depends on: the front byte is visible with no `rd` at all, and `rd`
+  look-then-advance contract L05 depends on: the front byte is visible with no `rd` at all, and `rd`
   only advances.
 * **Both flags come from `count`**, not from comparing `head` with `tail` - which cannot tell full
   from empty in a ring buffer without a spare slot or an extra bit.
@@ -684,8 +684,8 @@ take a bench that queues two bytes to see the difference - which is the same les
 in different clothes: a passing testbench proves the cases it contains.
 
 Worth noting for a candidate who spots it: this is also why the feeder could not be written before
-L04. `tx_empty` comes from the register bank and `tx_busy` from the transmitter, so it needs a block
-from L02 and a block from L04 to exist at the same time.
+L05. `tx_empty` comes from the register bank and `tx_busy` from the transmitter, so it needs a block
+from L02 and a block from L05 to exist at the same time.
 
 ---
 
@@ -755,10 +755,10 @@ stub would then have to reimplement them, and a test asserting that the driver p
 transaction would really be asserting that the stub and the driver made the same mistake. The
 byte-level seam is what makes the test meaningful, not merely possible.
 
-**The two implementations, and what changes.** *(1 mark)* `driver::transport::Stub` (L06, host,
-scripted) and `driver::transport::AvrSpi` (L07, target, real). What changes above the seam when they
+**The two implementations, and what changes.** *(1 mark)* `driver::transport::Stub` (L08, host,
+scripted) and `driver::transport::AvrSpi` (L09, target, real). What changes above the seam when they
 swap: **nothing at all.** The register map, `Uart`, the blocking helpers and `EchoNode` are
-recompiled, not rewritten - which is the entire return on the design work done in L05.
+recompiled, not rewritten - which is the entire return on the design work done in L06.
 
 ### (c) 3 marks
 
@@ -821,7 +821,7 @@ if none was waiting, in which case no `RX_DATA` read and no `RX_POP` were issued
 *(1 mark)*
 
 **The bits behind them.** `STATUS` bit 0 `TX_READY` (`not tx_full`) makes the write answer possible;
-bit 1 `RX_VALID` (`not rx_empty`) makes the read answer possible. The L04 mechanism behind both is
+bit 1 `RX_VALID` (`not rx_empty`) makes the read answer possible. The L05 mechanism behind both is
 that `STATUS` is **computed from the FIFO flags**, so each is a level that stays true until the
 condition changes - a pollable fact rather than an event that has to be caught.
 
@@ -857,7 +857,7 @@ re-check its `stop` flag between reads, which is the exact property its test dep
 * Transactions 1 and 2 are one **`configure(27)`**: the baud divider first, the enable afterwards,
   in that order, because the peripheral should know its rate before it is switched on.
 * Transactions 3, 4 and 5 are one successful **`read(byte)`**: poll `STATUS`, pure read of
-  `RX_DATA`, separate `RX_POP` write. Three register accesses, in that order, which is the L04
+  `RX_DATA`, separate `RX_POP` write. Three register accesses, in that order, which is the L05
   contract showing up on the other side of the wire.
 
 **What the driver did with the returned bytes.** *(1 mark)* In both reads, the reply that came back
@@ -1138,16 +1138,16 @@ representations)*
 | 1 | USB-serial adapter to the DE0-CV `rx` pin | provided hardware | data |
 | 2 | `sync` on the `rx` pin | L03 | data |
 | 3 | `uart_rx` | L03 | data |
-| 4 | the RX `fifo` | L03, instantiated L04 | data |
-| 5 | `uart_regs` | L04 | the boundary between the two |
+| 4 | the RX `fifo` | L04, instantiated L05 | data |
+| 5 | `uart_regs` | L05 | the boundary between the two |
 | 6 | `spi_reg_bridge`, then `spi_slave` | provided | control |
-| 7 | `AvrSpi` | L07 | control |
-| 8 | `Uart::readReg`, then `Uart::read` | L06 | control |
-| 9 | `app::EchoNode::run` | L08 | neither - it is the application |
-| 10 | `Uart::write`, then `Uart::writeReg` | L06 | control |
-| 11 | `AvrSpi`, then `spi_slave` and `spi_reg_bridge` | L07 / provided | control |
-| 12 | `uart_regs` and the TX `fifo` | L04 / L03 | the boundary again |
-| 13 | the TX feeder in `uart_top` | L04 | data |
+| 7 | `AvrSpi` | L09 | control |
+| 8 | `Uart::readReg`, then `Uart::read` | L07 | control |
+| 9 | `app::EchoNode::run` | L10 | neither - it is the application |
+| 10 | `Uart::write`, then `Uart::writeReg` | L07 | control |
+| 11 | `AvrSpi`, then `spi_slave` and `spi_reg_bridge` | L09 / provided | control |
+| 12 | `uart_regs` and the TX `fifo` | L05 / L04 | the boundary again |
+| 13 | the TX feeder in `uart_top` | L05 | data |
 | 14 | `uart_tx` | L02 | data |
 | 15 | the DE0-CV `tx` pin, adapter, terminal | provided hardware | data |
 
@@ -1252,10 +1252,10 @@ The marks are in the **order and the ownership**, not the punctuation:
   bytes go out at whatever the reset divider produces.
 * **Nothing is allocated.** Three plain locals in `main`'s frame, living until the program ends,
   which on this target is never. This is the freestanding constraint paying off rather than biting:
-  the design was reference-injected from L05, so the target needs no `operator new` and none is
-  available. A candidate reaching for `new` here has not understood what L07 removed.
+  the design was reference-injected from L06, so the target needs no `operator new` and none is
+  available. A candidate reaching for `new` here has not understood what L09 removed.
 * **`main` is the only file that names concrete types.** `EchoNode` sees an interface, `Uart` sees an
-  interface; swapping the transport for the L06 stub is an edit to these three lines and nothing
+  interface; swapping the transport for the L08 stub is an edit to these three lines and nothing
   else.
 
 `return 0` is unreachable and that is fine - `run()` never returns with `stop` held `false`. Accept
@@ -1265,7 +1265,7 @@ that falls off the end into avr-libc's exit path with the peripheral still live.
 **Why the flag is `false` here.** *(1 mark)* On the bench there is nobody to stop it: the node should
 echo for as long as the board has power, so `stop` is a `const bool` that is never written and
 `run()` is an infinite loop by construction. In the host test the very same parameter is what *ends*
-the run - the L05 UART stub sets the caller's flag `true` the moment its scripted RX buffer runs out.
+the run - the L06 UART stub sets the caller's flag `true` the moment its scripted RX buffer runs out.
 One `bool&`, read every pass, serves both: production runs forever because nothing sets it, and the
 test terminates because something does. That is why it is a reference rather than a return value or
 a one-time check.
@@ -1274,7 +1274,7 @@ a one-time check.
 arrived, and would therefore never return to the top of the loop - so `stop` would never be read
 again. The application could not be stopped by anybody, including its own test.
 
-That connects directly to how the host test ends: the L05 UART stub sets the caller's `stop` flag
+That connects directly to how the host test ends: the L06 UART stub sets the caller's `stop` flag
 `true` the moment its scripted RX buffer runs out, and `run()` sees it on the **next pass**. With a
 blocking read there is no next pass; the test hangs instead of finishing, which is the test telling
 you the loop is not actually stoppable.

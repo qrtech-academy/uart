@@ -34,16 +34,17 @@ EXTRA_FIGURES: dict[str, tuple[style.Figure, list[str]]] = {
     **bus_timing.FIGURES,
 }
 
-# figure name -> (figure, output paths). One module figure per VHDL entity, in the appendix
-# of the lecture that designs it.
-FIGURES: dict[str, tuple[style.Figure, list[Path]]] = {
-    entity.name: (
-        module_box.figure(entity),
-        [ROOT / "lectures" / lecture / "appendix/images" / f"{entity.name}.png"],
-    )
-    for lecture, entities in modules.BY_LECTURE.items()
-    for entity in entities
-}
+# figure name -> (figure, output paths). One module figure per VHDL entity, in the appendix of
+# the lecture that designs it - and in any later lecture's appendix that reprints its port table,
+# which is why the paths accumulate rather than overwrite.
+FIGURES: dict[str, tuple[style.Figure, list[Path]]] = {}
+for _lecture, _entities in modules.BY_LECTURE.items():
+    for _entity in _entities:
+        _path = ROOT / "lectures" / _lecture / "appendix/images" / f"{_entity.name}.png"
+        if _entity.name in FIGURES:
+            FIGURES[_entity.name][1].append(_path)
+        else:
+            FIGURES[_entity.name] = (module_box.figure(_entity), [_path])
 FIGURES.update(
     {name: (figure, [ROOT / p for p in paths]) for name, (figure, paths) in EXTRA_FIGURES.items()}
 )

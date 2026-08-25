@@ -3,7 +3,7 @@
 This is the one figure in the set that shows an architecture rather than an outside, and it
 is deliberate. `uart_regs` is not a state machine a student can hold in their head from the
 port list alone - it is two queues facing opposite directions, three stored registers, a
-decode and a read mux - and L04 Appendix A now spells that structure out in prose. The
+decode and a read mux - and L05 Appendix A now spells that structure out in prose. The
 figure is that prose in one picture; the exercises still ask for every line of the VHDL.
 
 Conventions follow the module boxes: thin line for a `std_logic`, thick for a vector, and
@@ -137,5 +137,5 @@ FIGURE = style.Figure(
 )
 
 FIGURES = {
-    "regs_internals": (FIGURE, ["lectures/L04/appendix/images/regs_internals.png"]),
+    "regs_internals": (FIGURE, ["lectures/L05/appendix/images/regs_internals.png"]),
 }

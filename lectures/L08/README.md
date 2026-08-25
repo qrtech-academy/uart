@@ -1,106 +1,96 @@
-# L08 - Integration & Bring-Up
+# L08 - The Driver, Tested
 
 ## Agenda
-Everything the course built meets on one bench. The first thing to get straight is that two serial
-links run across it, carrying different traffic over different protocols:
+L07 built the driver and nothing ran it. This lecture supplies the wire, scripted, and turns on the
+first `make test` the C++ half of the course has had.
 
-* **SPI** (Nano to DE0-CV, through the level shifter) is the **control plane**: the ATmega driving
-  the peripheral's registers.
-* The peripheral's own **UART** `tx`/`rx` is the **data plane**, running out to a 3.3 V USB-serial
-  adapter.
-
-From there the lecture covers:
-
-* **Level shifting**, since the Nano is 5 V and the DE0-CV 3.3 V, together with the four SPI lines
-  and the wiring table.
-* **The bring-up ladder**, climbed one rung at a time, each rung proving something the previous one
-  could not.
-* **`app::EchoNode`**, written and host-tested against the L05 UART stub first, and only then run on
-  the ATmega over your own VHDL peripheral, with one byte traced end to end.
+* **The scripted stub**: `driver::transport::Stub`, a concrete `driver::transport::Interface` that
+  records every byte the driver sends and plays back bytes a test queued for it. It is the C++
+  counterpart of a self-checking testbench.
+* **Host testing with QAcademy Test**: the provided suite constructs a `Stub`, constructs a `Uart`
+  over it, scripts the replies, calls the real driver, and asserts on the exact transactions that
+  came out - the 5-byte framing, the command byte, the byte order, and the "no `RX_POP` on empty"
+  rule.
+* **Testing the test double first**: four `TransportStub` cases run before any driver case, because
+  every `Uart` case reads what the stub was scripted to reply, so a stub bug reports itself as a
+  driver failure.
+* **Blocking `write` and `read`** as thin free functions over the non-blocking core, taking
+  `Interface&` rather than `Uart&`, plus a provided demo that exercises the whole API end to end.
 
 ---
 
 ## Objectives
 After this lecture, participants should be able to:
 
-* **Write `app::EchoNode`** against the driver interface and host-test it on the L05 UART stub with
-  no hardware, then bring it up as the final rung of the ladder.
-* **Wire the two-link bench correctly**, level shifter included, and explain what each SPI line and
-  each UART line carries.
-* **Climb the bring-up ladder methodically** and state what each rung establishes that the previous
-  one cannot.
-* **Explain what an integration test catches that no host test can**, and where the top of the test
-  pyramid sits for this system.
+* **Build a scripted stub** and use it to assert the exact transactions the driver produces,
+  including the byte order and the "no `RX_POP` on empty" behaviour.
+* **Explain what a test double has to be faithful about** and what it may ignore, and why the stub's
+  two buffers are linear logs rather than FIFOs.
+* **Read a red test and place the bug**, distinguishing a fault in the stub's script from a fault in
+  the driver it is scripting.
+* **Build blocking helpers over a non-blocking core**, and explain why the spinning lives above the
+  driver rather than inside it.
 
 ---
 
 ## Prerequisites
-You need a `uart_top` from L04 that passes the system testbench, synthesized and programmed onto the
-DE0-CV in L07 via the board wrapper (`uart_board.vhd`) in the Quartus project, and the ATmega
-firmware from L07, flashed, with its host tests passing. You also need the hardware listed in
-[`info/README.md`](../../info/README.md): a DE0-CV, a Nano, a level shifter, a 3.3 V USB-serial
-adapter, and, recommended but not required, a logic analyzer.
+This lecture needs the `Uart` from L07 and, through it, the three contracts from L06; the driver is
+the thing under test, so it has to exist before the suite can say anything about it. From Embedded
+Software Testing it assumes unit and component testing with stubs and dependency injection, applied
+here to a real driver; that course is recommended but not required.
 
 ---
 
 ## Instructions
 
 ### Preparation
-Read [Appendix A](./appendix/a_bench.md) for the two links, level shifting and the board wrapper.
-Then read [Appendix B](./appendix/b_exercises.md), and write and host-test `app::EchoNode` before
-the lecture; that needs no hardware, only the driver interface and the UART stub from L05. Read
-[Appendix C](./appendix/c_bringup.md) for the wiring tables and the bench procedure, and build the
-wiring table yourself from the [protocol spec](../../protocol/uart_register_protocol.md)'s SPI
-parameters and the board pinout. Have it checked before powering anything.
+Read [Appendix A](./appendix/a_testing.md), which explains the scripted stub, what the provided host
+suite pins down, and why the blocking helpers sit above the interface rather than inside the driver.
+Then read the provided suite itself,
+[`fw/test/uart/uart_test.cpp`](../../fw/test/uart/uart_test.cpp): it is the executable specification
+of everything L07 wrote, and reading it before writing the stub
+tells you exactly which member names the stub owes it.
 
-### During the Lecture (bench work)
-The FPGA hardware is limited, so the assembly and bring-up are demonstrated live on the provided
-DE0-CV and Nano. Follow along, then try it hands-on at the provided bench, per
-[Appendix C](./appendix/c_bringup.md).
+### During the Lecture
+We live-code the stub's two sides, the record and the playback, and then the blocking helpers, which
+are two spin loops. The suite comes on the moment the last header exists:
 
-The work is climbing the **bring-up ladder**, stopping at the first rung that misbehaves. Each rung
-adds exactly one layer, so the first rung that breaks names the culprit; the rungs are Appendix C's
-Exercise 3. Rung a is a **data-plane pin loopback**: the board wrapper wires its `rx` pin straight
-back to its `tx` pin, bypassing the peripheral, so a PC terminal echoes itself and only the adapter,
-the levels, the terminal settings and the pin assignment are on trial. Rung b brings up the
-**control plane**, writing `BAUD_DIV` over SPI and reading it back. Rung c is **peripheral
-loopback**, with `tx` tied to `rx` on the board so the driver can send a byte and read the same byte
-back without the outside world. Rung d is the **real data plane**, the same send and receive against
-the terminal. Rung e is **EchoNode**, the full application.
+```bash
+make build-cpp        # builds fw/, runs its QAcademy Test suite
+```
 
-The order is forced: the peripheral cannot transmit until `BAUD_DIV` is written, and `BAUD_DIV` is
-only reachable over SPI, so the control plane must be proven before any rung that uses the
-peripheral.
+We get the four `TransportStub` cases green first, then watch the `Uart` cases from L07 go green
+behind them without a line of driver code changing - which is the point of having built the driver
+against an interface rather than against SPI.
 
-**The 60 minutes.** Nothing is typed this session. `app::EchoNode` and its test are written and
-passing before the lecture, which is what makes the bench possible in an hour: the class arrives
-already proven, so the only open questions are wiring and links. The session is the bench itself,
-climbing the ladder rung by rung and stopping wherever it first misbehaves.
+**The 60 minutes.** The stub's record side and playback side are typed live, along with
+`injectRxWord`, because most-significant-first there is the mirror of most-significant-first in
+`readReg` and a mistake in one looks exactly like a mistake in the other. The two blocking helpers
+are four lines and get typed too, since the suite is gated on the header existing. `injectRxByte`,
+`clearRxData`, the remaining accessors and the provided demo are the exercise.
 
 ### After the Lecture
-Complete the closing exercise, [Appendix C, Exercise 4](./appendix/c_bringup.md): trace a single byte
-through every layer, from the PC terminal through the FPGA's UART RX, the FIFO, the register bank,
-the SPI bridge, `AvrSpi`, the driver and `EchoNode`, and back out again, naming each module and the
-lecture that built it.
+Work through the [exercises](./appendix/b_exercises.md): finish the scripted `Stub`, get the whole
+host suite green, add `writeBlocking` / `readBlocking`, then copy in the provided `main.cpp` and run
+it.
 
 ---
 
 ## Evaluation
-* The real-data-plane rung (d) works but the EchoNode rung (e) does not: which layer is implicated,
-  and which layers has the ladder already cleared?
-* Rung c loops `tx` back to `rx` on the board and passes, yet rung d fails against the terminal:
-  what does that isolate, given that the peripheral's own datapath is common to both?
-* What does the control-plane rung (b) prove that a passing `uart_top_tb` in simulation did not?
-* If one SPI line is left un-shifted, wired 5 V straight to a 3.3 V pin, what is the likely symptom,
-  and which rung exposes it first?
+* Why is the driver tested against a scripted `driver::transport::Stub` rather than the real SPI at
+  this stage, and what class of bug does that let you find first?
+* `injectRxWord` queues its four bytes least significant first by mistake. Which cases go red, and
+  why does the failure point at `readReg()` rather than at the stub?
+* The suite counts `begin()` and `end()` calls in eight cases. What would be wrong with a driver
+  that passed every byte-sequence assertion but failed those counters?
+* Why do `writeBlocking` and `readBlocking` take `Interface&` rather than `Uart&`, and which class
+  from L06 does that choice make usable in L10?
 
 ---
 
-## Course Review
-The pattern you have just completed, a peripheral in VHDL, a driver in C++, one shared register
-contract, integrated across a real chip boundary, is the whole FPGA-meets-MCU method. The same
-method scales to far harder protocols, and the SPI transport this course handed you as a black box is
-itself built from the wire up two courses later, in SPI: The MCU-FPGA Transport, from the Wire Up.
+## Next Lecture
+The bottom layer becomes real: the AVR's own `SPCR` / `SPSR` / `SPDR`, `AvrSpi` implementing
+`driver::transport::Interface`, and what a freestanding target removes. The driver, the interface,
+the register map and this suite all run unchanged.
 
 ---
-

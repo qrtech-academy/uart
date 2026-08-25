@@ -27,7 +27,7 @@ baud`, and every other datapath block treats one `tick` as "one sixteenth of a b
 | `tick`       | out | `std_logic`              | One-cycle pulse every `div` clocks. |
 
 `baud_gen_tb` binds these ports positionally, as everything in this course does, so the order and
-types above must match exactly. `div` is a plain `natural`, not a vector: the register bank (L04)
+types above must match exactly. `div` is a plain `natural`, not a vector: the register bank (L05)
 holds the value as `BAUD_DIV` and hands it over already converted, so this block never touches a
 `std_logic_vector` or `numeric_std`.
 

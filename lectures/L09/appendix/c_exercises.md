@@ -13,7 +13,7 @@ compiles for the target (real registers) and for the host suite (the mocked regi
 it touches AVR registers, the host `make build` skips `avr_spi.cpp`; the AVR build compiles it for
 the target, and the host test suite compiles it against the mock.
 
-Keep the AVR-portable style from L05: `<stdint.h>` and bare types, nested namespace blocks, no
+Keep the AVR-portable style from L06: `<stdint.h>` and bare types, nested namespace blocks, no
 `[[nodiscard]]`.
 
 ---
@@ -21,7 +21,7 @@ Keep the AVR-portable style from L05: `<stdint.h>` and bare types, nested namesp
 ## Exercise 1 - `AvrSpi`
 **a)** In `include/driver/transport/avr_spi.hpp` (declaration) and
 `source/driver/transport/avr_spi.cpp` (definitions), create a new class `AvrSpi`, a second
-implementation of `driver::transport::Interface` (the first was the L06 `Stub`), beside
+implementation of `driver::transport::Interface` (the first was the L08 `Stub`), beside
 `interface.hpp` and `stub.hpp`. Reach the registers through `arch/avr/hw_platform.hpp`.
 
 Configure the SPI master once, from Appendix A's bit table: set the `DDRB` directions, with `SCK`,
@@ -49,8 +49,8 @@ first?
 
 **e)** The check: run the provided host suite (`make test`), which drives `AvrSpi` over the
 mocked register file and asserts the configuration bits, the chip-select framing, the `SPIF` poll,
-and the returned byte. Confirm the L06 driver suite still passes unchanged, since nothing above the
-seam moved. The transport itself is finally proven on the bench in L08.
+and the returned byte. Confirm the L08 driver suite still passes unchanged, since nothing above the
+seam moved. The transport itself is finally proven on the bench in L10.
 
 ---
 

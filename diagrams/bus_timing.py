@@ -55,5 +55,5 @@ def _draw(d, ax) -> None:
 FIGURE = style.Figure(draw=_draw, canvas=(-3.4, -5.5, 6.4, 1.0))
 
 FIGURES = {
-    "bus_timing": (FIGURE, ["lectures/L04/appendix/images/bus_timing.png"]),
+    "bus_timing": (FIGURE, ["lectures/L05/appendix/images/bus_timing.png"]),
 }

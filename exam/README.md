@@ -29,30 +29,32 @@ appendix open in the next tab, GHDL ready to say no and `make test` ready to say
 papers ask what you can reconstruct with none of that in front of you - which of the rules you have
 absorbed, and which you have merely been looking up.
 
-**Take one after the course is over.** Every paper draws on all eight lectures and on both halves of
+**Take one after the course is over.** Every paper draws on all ten lectures and on both halves of
 the system, so sitting one partway through examines material nobody has taught you yet, and the
 result says more about how far you have read than about what you have understood. The intended point
-is after [L08](../lectures/L08/README.md), with the bench climbed and `app::EchoNode` echoing.
+is after [L10](../lectures/L10/README.md), with the bench climbed and `app::EchoNode` echoing.
 
 ---
 
 ## The two papers
 
-Both cover the whole course, L01 to L08, at the same weighting, and both follow the course's own
-rhythm: **four questions of VHDL, three of C++, and one with both halves on the bench at once.**
-They share no question. Either can be used alone; use both as a main sitting and a resit, or in
-alternate years.
+Both cover the whole course, L01 to L10, at the same weighting, in **eight questions: four of VHDL,
+three of C++, and one with both halves on the bench at once.** Two of the eight span a pair of
+lectures rather than one - Question 3 covers the receive side across L03 and L04, and Question 6 the
+driver and the suite that grades it across L07 and L08 - which is why ten lectures fit into eight
+questions without dropping anything. They share no question. Either can be used alone; use both as a
+main sitting and a resit, or in alternate years.
 
 | Question | Topic                                                | Lecture | Side | Marks   |
 | -------- | ---------------------------------------------------- | ------- | ---- | ------- |
 | 1        | The register map, the peripheral top, and binding     | L01     | VHDL | 12      |
 | 2        | Framing, the baud divider, and the transmitter        | L02     | VHDL | 13      |
-| 3        | The asynchronous line: synchronizer, oversampling, FIFO | L03   | VHDL | 14      |
-| 4        | The register bank: ports become registers             | L04     | VHDL | 13      |
-| 5        | The driver's contracts                                | L05     | C++  | 12      |
-| 6        | The driver and the five-byte transaction              | L06     | C++  | 13      |
-| 7        | The real transport and the freestanding target        | L07     | C++  | 11      |
-| 8        | Integration and bring-up                              | L08     | Both | 12      |
+| 3        | The asynchronous line: synchronizer, oversampling, FIFO | L03-L04 | VHDL | 14      |
+| 4        | The register bank: ports become registers             | L05     | VHDL | 13      |
+| 5        | The driver's contracts                                | L06     | C++  | 12      |
+| 6        | The driver and the five-byte transaction              | L07-L08 | C++  | 13      |
+| 7        | The real transport and the freestanding target        | L09     | C++  | 11      |
+| 8        | Integration and bring-up                              | L10     | Both | 12      |
 |          |                                                       |         |      | **100** |
 
 **Paper A leans towards reading and tracing.** Most of its questions hand you something - a `STATUS`

@@ -6,7 +6,7 @@ rises and falls, a `tick`. Software speaks in **registers**: it writes a byte to
 polls a status word, reads a byte back. The register bank is the translator between the two, and it
 is the layer the whole [protocol spec](../../../protocol/uart_register_protocol.md) describes.
 
-It owns two of the `fifo` you built in [L03](../../L03/appendix/c_fifo.md), the `CTRL`, `BAUD_DIV`
+It owns two of the `fifo` you built in [L04](../../L04/appendix/a_fifo.md), the `CTRL`, `BAUD_DIV`
 and `ERROR_FLAGS` registers, and it computes the read-only `STATUS` word. It is reached over a small
 register bus that the provided SPI bridge drives; the bridge, not this module, is what turns SPI
 transactions into `reg_write` strobes, so `uart_regs` can trust that a `reg_write` it sees is a
@@ -259,7 +259,7 @@ other one, and it has no clock at all:
   the other order loses a real error to a write issued before it happened, and a dropped error flag
   is far worse than a stale one.
 * **The FIFOs already guard themselves.** A `TX_DATA` write while the TX FIFO is full is dropped by
-  the FIFO, and an `RX_POP` on an empty RX FIFO does nothing, both because L03 guarded them on `not
+  the FIFO, and an `RX_POP` on an empty RX FIFO does nothing, both because L04 guarded them on `not
   full` and `not empty`. The bank adds no guards of its own; `STATUS` is what the driver is supposed
   to poll first.
 * **Nothing is gated on `CT_ENABLE`.** As above: no testbench ever writes `CTRL`, so a bank that

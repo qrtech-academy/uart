@@ -31,10 +31,10 @@ APP_SRC    := $(filter-out $(AVR_SRC),$(ALL_SRC))
 TESTED_SRC := $(filter-out source/main.cpp,$(ALL_SRC))
 TEST_SRC   := $(shell find test -name '*.cpp' 2>/dev/null)
 
-# Headers the L06 suite needs, and whichever of them are still missing. Each suite already guards
+# Headers the L08 suite needs, and whichever of them are still missing. Each suite already guards
 # its own body with #if __has_include(...), so a suite whose code has not been written yet compiles
 # to nothing on its own. What that cannot cover is *every* suite being empty: runAllTests() reports
-# failure on an empty registry, so a test binary with no cases in it fails the build. The L06 suite
+# failure on an empty registry, so a test binary with no cases in it fails the build. The L08 suite
 # is the first to have any, so until its headers exist there is no binary worth linking.
 UART_TEST_DEPS := include/driver/transport/stub.hpp include/driver/uart/blocking.hpp \
                   include/driver/uart/register_map.hpp include/driver/uart/uart.hpp

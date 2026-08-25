@@ -69,7 +69,7 @@ re-teach:
   and running a provided self-checking testbench.
 * **Modern Embedded C++** - classes, interfaces, and the layered-driver idea.
 * **Embedded C** - the ATmega toolchain (avr-gcc, avrdude) and register-level programming. Needed
-  only from L07, when the driver reaches the real chip.
+  only from L09, when the driver reaches the real chip.
 
 ### The provided transport
 The MCU-FPGA link, a byte-level `spi_slave` and a transaction-level `spi_reg_bridge`, is
@@ -89,17 +89,17 @@ every lecture README. Roughly half the code the course produces lives in those e
 
 [`exam/`](./exam/README.md) holds two four-hour papers with worked solutions, and they check
 something else: **what you can reconstruct on paper, with nothing in front of you.** Eight questions
-each, one per lecture, in the course's own rhythm of four VHDL, three C++ and one with both halves
-on the bench - mixing theory with code you either trace and repair or write from scratch, and with
-no GHDL and no `make test` in the room to tell you which it is.
+each, covering all ten lectures - four of VHDL, three of C++ and one with both halves on the bench -
+mixing theory with code you either trace and repair or write from scratch, and with no GHDL and no
+`make test` in the room to tell you which it is.
 
 **They exist purely so that participants can test their own skills and knowledge after the course.
 They gate nothing, they are not a qualification, and no part of the course requires them.** Nothing
 in this repository depends on them: no module is built from them, and neither `make build` nor
 `make format-check` knows they exist.
 
-**Take one once the course is over**, after [L08](./lectures/L08/README.md) and the bring-up ladder.
-Both papers draw on all eight lectures and on both sides of the wire, so sitting one partway through
+**Take one once the course is over**, after [L10](./lectures/L10/README.md) and the bring-up ladder.
+Both papers draw on all ten lectures and on both sides of the wire, so sitting one partway through
 examines material nobody has taught you yet, and the result says more about how far you have read
 than about what you have understood.
 
@@ -114,7 +114,7 @@ hw/          The VHDL this course writes (baud gen, transmitter, receiver, FIFOs
 fw/          The C++ this course writes: the transport seam, driver::uart::Uart, host tests, and
              the AVR port. See fw/README.md.
 info/        Course info: instructor, course plan, per-lecture breakdown, and the shopping list.
-lectures/    Lecture READMEs, L01-L08.
+lectures/    Lecture READMEs, L01-L10.
 exam/        Two written papers and their solutions. Optional, and marked by nobody here.
 protocol/    The UART register protocol specification - the contract both halves implement,
              including the provided SPI transport framing.

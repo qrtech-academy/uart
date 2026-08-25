@@ -1,4 +1,4 @@
-# Appendix C
+# Appendix A
 
 ## Designing `fifo.vhd`
 The datapath produces and consumes bytes at different rates:
@@ -11,7 +11,7 @@ A **FIFO** (first in, first out queue) absorbs that mismatch: bytes go in one en
 other in the same order, and each side can run without waiting for the other, up to the depth of
 the queue.
 
-The register bank (L04 Appendix A) needs two of these, one for each direction, so `fifo` is written
+The register bank (L05 Appendix A) needs two of these, one for each direction, so `fifo` is written
 once as a generic module and instantiated twice.
 
 ---
@@ -35,7 +35,7 @@ once as a generic module and instantiated twice.
 
 `fifo_tb` binds the ports positionally and drives the generic map too, instantiating a depth-4
 FIFO. `rdata` shows the front entry continuously, without a `rd`; `rd` is what *discards* it and
-moves to the next. That split (look, then advance) is exactly what the RX path in L04 needs.
+moves to the next. That split (look, then advance) is exactly what the RX path in L05 needs.
 
 ---
 
@@ -80,7 +80,7 @@ That is the whole contract: order preserved, and the flags honest at both ends.
 ---
 
 ### Where it fits
-The register bank (L04 Appendix A) instantiates two `fifo`s, both `WIDTH = 8, DEPTH = 8`: a TX FIFO
+The register bank (L05 Appendix A) instantiates two `fifo`s, both `WIDTH = 8, DEPTH = 8`: a TX FIFO
 that a `TX_DATA` register write pushes and the transmitter drains, and an RX FIFO that the receiver
 pushes and an `RX_DATA` read plus `RX_POP` write drains. The FIFO's `full`/`empty` flags become the
 `STATUS` register's TX-ready and RX-valid bits.
@@ -88,8 +88,10 @@ pushes and an `RX_DATA` read plus `RX_POP` write drains. The FIFO's `full`/`empt
 ---
 
 ### What's ahead
-[L04 Appendix A](../../L04/appendix/a_uart_regs.md) builds `uart_regs`, the register bank, which
-wraps two of these FIFOs and the datapath in the register map that software drives.
+[Appendix B](./b_exercises.md) is the exercises: build `fifo` and run its testbench, put the L03
+receive path into `uart_top`, and work out why overrun is not the receiver's question to answer.
+Then [L05 Appendix A](../../L05/appendix/a_uart_regs.md) builds `uart_regs`, the register bank,
+which wraps two of these FIFOs and the datapath in the register map that software drives.
 
 ---
 

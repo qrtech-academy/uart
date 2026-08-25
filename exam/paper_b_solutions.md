@@ -82,10 +82,10 @@ signal spi_rx_data  : std_logic_vector(7 downto 0);   -- slave  -> bridge
 signal spi_rx_valid : std_logic;                      -- slave  -> bridge
 signal spi_ss_active: std_logic;                      -- slave  -> bridge
 signal spi_tx_data  : std_logic_vector(7 downto 0);   -- bridge -> slave
-signal reg_addr     : std_logic_vector(3 downto 0);   -- bridge -> uart_regs (L04)
-signal reg_wdata    : std_logic_vector(31 downto 0);  -- bridge -> uart_regs (L04)
-signal reg_write    : std_logic;                      -- bridge -> uart_regs (L04)
-signal reg_rdata    : std_logic_vector(31 downto 0);  -- uart_regs (L04) -> bridge
+signal reg_addr     : std_logic_vector(3 downto 0);   -- bridge -> uart_regs (L05)
+signal reg_wdata    : std_logic_vector(31 downto 0);  -- bridge -> uart_regs (L05)
+signal reg_write    : std_logic;                      -- bridge -> uart_regs (L05)
+signal reg_rdata    : std_logic_vector(31 downto 0);  -- uart_regs (L05) -> bridge
 begin
 ```
 
@@ -133,7 +133,7 @@ would make an illegal address indistinguishable from a legal one.
 *(half a mark - the line is trivial; the marks are in what follows)*
 
 **With it in place**, an SPI read transaction returns **`0x00000000`** for every register index.
-That is harmless until L04 because there is no register bank yet: nothing in the design has a value
+That is harmless until L05 because there is no register bank yet: nothing in the design has a value
 to return, and no testbench asks for one - `uart_top_tb` is *skipped* until its datapath exists, and
 the two transport benches drive the provided blocks directly. *(1 mark)*
 
@@ -145,7 +145,7 @@ It is not zero and it is not garbage-but-defined; it is the simulator's marker f
 driven this", which is exactly the information the placeholder exists to suppress while the bank is
 missing. *(half a mark)*
 
-The other half of the mark is for saying **when it must go**: in L04, in the same edit that
+The other half of the mark is for saying **when it must go**: in L05, in the same edit that
 instantiates `uart_regs`. Leave it and the vector has two drivers.
 
 ### (d) 2 marks
@@ -365,11 +365,11 @@ busy <= '1' when state = STATE_SEND else '0';
 A concurrent decode of the state, so `busy` is high in the same simulation cycle as the state change
 rather than a clock later.
 
-The first testbench that **could** have caught it is `uart_top_tb`, in **L04** - the first bench in
+The first testbench that **could** have caught it is `uart_top_tb`, in **L05** - the first bench in
 which the feeder, the FIFO and the transmitter exist at the same time. Be honest about the rest: as
 written it writes exactly **one** byte to `TX_DATA`, so it lands squarely in the edge case above and
 does **not** catch it. Catching it needs a bench that queues two bytes and checks that both leave.
-Full marks for the honest answer; half for "L04's `uart_top_tb`" without the caveat.
+Full marks for the honest answer; half for "L05's `uart_top_tb`" without the caveat.
 
 ---
 
@@ -1156,7 +1156,7 @@ includes it emits a definition. Without `inline` that is a one-definition-rule v
 duplicate-symbol error at link time the moment two files include the header.
 
 **Why `Interface&` and not `Uart&`.** So they work over **any** implementation - the concrete `Uart`,
-the L05 `driver::uart::Stub`, any future driver - dispatching virtually at run time. Taking the
+the L06 `driver::uart::Stub`, any future driver - dispatching virtually at run time. Taking the
 concrete type would tie a convenience function to one implementation for no reason.
 
 **Why free functions in a separate header.** They add **no state and no new contract**: they are a
@@ -1319,7 +1319,7 @@ of 40 us looks exactly like one that takes 40 us unless you are measuring.
 
 That is unfortunate because the loud symptom points at the **logging**, the one part of the system
 that does not matter, and hides the fact that the SPI link is also running at half speed - which is
-precisely what the L07 exercise asks you to measure against the 1 MHz budget. A candidate who
+precisely what the L09 exercise asks you to measure against the 1 MHz budget. A candidate who
 "fixes" it by halving the log baud has made the symptom go away and left the wrong clock in place,
 and every timing figure they take afterwards is out by a factor of two. The fix is to `F_CPU` (and to
 the fuses, if 16 MHz was what was wanted).
@@ -1432,7 +1432,7 @@ only ever **reads** it: setting it is the caller's business.
 
 **The test.** *(2 marks)*
 
-It runs over the L05 **`driver::uart::Stub`** - the UART-level double, not the transport stub, since
+It runs over the L06 **`driver::uart::Stub`** - the UART-level double, not the transport stub, since
 `EchoNode` sits above the driver and knows nothing of SPI. Host test code may use full modern C++.
 
 ```cpp
@@ -1527,11 +1527,11 @@ command-phase placeholder plus four data bytes queued. Testing three bytes of ec
 about fifty bytes of SPI, and the test is then re-testing the register protocol rather than the echo
 logic.
 
-It is also impossible to run `EchoNode` over anything **else** - the L05 `driver::uart::Stub`, a
+It is also impossible to run `EchoNode` over anything **else** - the L06 `driver::uart::Stub`, a
 loopback double, a future driver variant, a driver over a different transport - because the type is
 nailed down at compile time.
 
-**What has to be built first:** the whole L06 test harness, one layer too low, before a single line
+**What has to be built first:** the whole L08 test harness, one layer too low, before a single line
 of application logic can be checked.
 
 **The fix.** One word:
@@ -1540,7 +1540,7 @@ of application logic can be checked.
 driver::uart::Interface& myUart;
 ```
 
-**The L05 decision it makes concrete.** *(1 mark)* That `driver::uart::Interface` is **abstract so
+**The L06 decision it makes concrete.** *(1 mark)* That `driver::uart::Interface` is **abstract so
 that the application codes against a promise rather than against a driver**. The interface exists for
 exactly this: the application and its tests are written against the contract, so the same object runs
 unchanged over the stub in a host test and over the real `Uart` on the bench, and arrives at the

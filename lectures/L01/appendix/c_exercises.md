@@ -8,7 +8,7 @@ down to the last internal signal, is below. Appendix B is where the reasoning be
 Exercise 3 asks for that reasoning back.
 
 Neither module has a testbench of its own in L01. `uart_def` is a package of constants, and
-`uart_top`'s system testbench (`uart_top_tb`) stays skipped until its datapath exists in L04. So the
+`uart_top`'s system testbench (`uart_top_tb`) stays skipped until its datapath exists in L05. So the
 check here is that `uart_top` **analyzes cleanly** against the transport it instantiates. Run GHDL
 from `hw/` (see [`hw/README.md`](../../../hw/README.md) for the full flow and what
 `--assert-level=error` does).
@@ -43,7 +43,7 @@ surface as a failure, and why not before?
 Build the skeleton in the order the file is written: entity, declarations, then the three
 instantiations and the one placeholder assignment. Each part below carries what that step needs.
 Do not instantiate `baud_gen`, `uart_tx`, `sync`, `uart_rx` or `uart_regs` yet, and do not declare
-their signals: those blocks arrive in L02 through L04, and each brings its own wiring with it.
+their signals: those blocks arrive in L02 through L05, and each brings its own wiring with it.
 
 **a) The entity.** Declare the eight ports in exactly this order. `uart_top_tb` binds them by
 position, so the numbers are the contract; the names are yours.
@@ -61,7 +61,7 @@ position, so the numbers are the contract; the names are yours.
 
 The file needs `ieee.std_logic_1164` for `std_logic`. It does not need `ieee.numeric_std` yet, since
 nothing here converts a vector to an integer, and it does **not** need `use work.uart_def.all`: the
-top wires the register bus but never names a bit on it, and `uart_regs` (L04) is the only module
+top wires the register bus but never names a bit on it, and `uart_regs` (L05) is the only module
 that does. Follow the provided files' house style, a banner comment listing the inputs and outputs,
 then `architecture behaviour of uart_top is`.
 
@@ -83,12 +83,12 @@ expect `reset_s2_n` rather than `reset_n`.
 | `spi_rx_valid` | `std_logic`                     | `spi_slave` | `spi_reg_bridge` |
 | `spi_ss_active`| `std_logic`                     | `spi_slave` | `spi_reg_bridge` |
 | `spi_tx_data`  | `std_logic_vector(7 downto 0)`  | `spi_reg_bridge` | `spi_slave` |
-| `reg_addr`     | `std_logic_vector(3 downto 0)`  | `spi_reg_bridge` | `uart_regs` (L04) |
-| `reg_wdata`    | `std_logic_vector(31 downto 0)` | `spi_reg_bridge` | `uart_regs` (L04) |
-| `reg_write`    | `std_logic`                     | `spi_reg_bridge` | `uart_regs` (L04) |
-| `reg_rdata`    | `std_logic_vector(31 downto 0)` | zeros in e), then `uart_regs` (L04) | `spi_reg_bridge` |
+| `reg_addr`     | `std_logic_vector(3 downto 0)`  | `spi_reg_bridge` | `uart_regs` (L05) |
+| `reg_wdata`    | `std_logic_vector(31 downto 0)` | `spi_reg_bridge` | `uart_regs` (L05) |
+| `reg_write`    | `std_logic`                     | `spi_reg_bridge` | `uart_regs` (L05) |
+| `reg_rdata`    | `std_logic_vector(31 downto 0)` | zeros in e), then `uart_regs` (L05) | `spi_reg_bridge` |
 
-The four register-bus signals are here even though the block that answers on them is three lectures
+The four register-bus signals are here even though the block that answers on them is four lectures
 away, because `spi_reg_bridge` has ports for them and an instantiation must connect every port. That
 is the register bus existing with nothing behind it, which is the shape this lecture is really about.
 
@@ -159,10 +159,10 @@ reg_rdata <= (others => '0');
 ```
 
 The file would analyze without this; an undriven signal is legal. It is here so the bridge reads a
-defined value instead of `'U'` while the bank is missing. **Delete this line in L04**, when
+defined value instead of `'U'` while the bank is missing. **Delete this line in L05**, when
 `uart_regs` starts driving `reg_rdata`. Leave it in and the vector has two drivers: every `'1'` from
 the bank resolves against the `'0'` here to `'X'`, and the system testbench fails on a read-back
-caused by a line you wrote three lectures earlier.
+caused by a line you wrote four lectures earlier.
 
 **e) The check.** Analyze the skeleton against the package and the transport it instantiates:
 
@@ -174,8 +174,8 @@ ghdl -a --std=93 uart_def.vhd reset_sync.vhd spi_slave.vhd spi_reg_bridge.vhd ua
 Then run `make build-vhdl` from the repository root. Confirm `uart_def` and `uart_top` both analyze
 cleanly, that the two transport testbenches pass (they are the only ones that can run this early,
 since they check provided modules), and that `uart_top_tb` reports **skipped**. Which modules does
-the skip message name as missing, and which lecture (L02, L03, L04) builds each? One of the six is
-never instantiated by `uart_top` at all; find it, and say why the build needs it anyway.
+the skip message name as missing, and which lecture (L02, L03, L04, L05) builds each? One of the six
+is never instantiated by `uart_top` at all; find it, and say why the build needs it anyway.
 
 ---
 
@@ -187,7 +187,7 @@ catch it? If not, at which point in the course does the mistake finally show up,
 tell you about the cost of a positional contract?
 
 **b)** `reg_rdata` is tied to zeros and no register bank answers on the bus. What does an SPI read
-transaction return with that placeholder in place, and why is that harmless until L04? What would it
+transaction return with that placeholder in place, and why is that harmless until L05? What would it
 return instead if you left the placeholder out altogether?
 
 **c)** The provided `reset_sync` asserts asynchronously but releases synchronously. Suppose it

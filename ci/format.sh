@@ -156,7 +156,7 @@ select_files FILES
 # Nothing to do until this course has its own C/C++ files (the driver arrives lecture by lecture).
 # Without this guard, clang-format would be invoked with no file arguments and block on stdin.
 # Note this only skips the C/C++ pass: the VHDL pass below still runs, since hw/ has sources from
-# L01 onwards while fw/ stays empty until L05.
+# L01 onwards while fw/ stays empty until L06.
 if [ "${#FILES[@]}" -eq 0 ]; then
     echo "No C/C++ files to format yet."
 else

@@ -1,9 +1,9 @@
 # Appendix A
 
-## The L05 driver stack (the contracts)
-L05 crosses from VHDL to C++, and it starts with the *shapes*: the three abstractions the driver
+## The L06 driver stack (the contracts)
+L06 crosses from VHDL to C++, and it starts with the *shapes*: the three abstractions the driver
 will rest on. None of them contains an algorithm yet; they are the register map, the transport
-interface, and the driver interface. Designing them well is what makes the driver (L06) short and
+interface, and the driver interface. Designing them well is what makes the driver (L07) short and
 host-testable.
 
 Two of the three are abstract interfaces, so each lives in its own namespace: the driver's public
@@ -12,20 +12,20 @@ API is `driver::uart::Interface`, and the transport seam it runs over is
 subsystem exposes one seam by that name.
 
 Everything here is written by you. The three contracts are declarations; the exercises then implement
-the driver interface once, as `driver::uart::Stub`, so L05 ends with a concrete class rather than
-three headers. The provided host tests arrive in L06, once the `Uart` that implements the same
+the driver interface once, as `driver::uart::Stub`, so L06 ends with a concrete class rather than
+three headers. The provided host tests arrive in L08, once the `Uart` that implements the same
 interface exists.
 
 The full stack, top to bottom:
 
 | Layer | Built in | Role |
 |---|---|---|
-| the application (`app::EchoNode`) | C++ (L08) | Uses the driver through its abstract interface. |
-| `driver::uart::Interface` | C++ (L05) | The abstract driver API the application depends on. |
-| `driver::uart::Stub` | C++ (L05) | A test double implementing that interface; L08's whole harness for `app::EchoNode`. |
-| `driver::uart::Uart` | C++ (L06) | Implements the driver interface using the register protocol. |
-| `driver::transport::Interface` | C++ (L05) | The abstract SPI byte seam the driver runs over. |
-| a scripted stub / the real SPI | C++ (L06 / L07) | `driver::transport::Stub` for host tests; the AVR SPI on hardware. |
+| the application (`app::EchoNode`) | C++ (L10) | Uses the driver through its abstract interface. |
+| `driver::uart::Interface` | C++ (L06) | The abstract driver API the application depends on. |
+| `driver::uart::Stub` | C++ (L06) | A test double implementing that interface; L10's whole harness for `app::EchoNode`. |
+| `driver::uart::Uart` | C++ (L07) | Implements the driver interface using the register protocol. |
+| `driver::transport::Interface` | C++ (L06) | The abstract SPI byte seam the driver runs over. |
+| a scripted stub / the real SPI | C++ (L08 / L09) | `driver::transport::Stub` for host tests; the AVR SPI on hardware. |
 
 The register map both halves share lives in `driver/uart/register_map.hpp`.
 
@@ -54,8 +54,8 @@ same time, because that is exactly how SPI works, a bit out and a bit in on ever
 Putting the seam at the *byte* level, rather than exposing register reads and writes directly, is
 the deliberate choice. It keeps the SPI-specific knowledge (5-byte transactions, the command byte,
 byte order) in one place, the driver, and lets the layer below be a dumb byte pipe that a stub can
-imitate perfectly. The seam is the whole reason the driver is host-testable: L06's tests inject a
-stub here, L07 injects the real AVR SPI, and nothing above the seam changes.
+imitate perfectly. The seam is the whole reason the driver is host-testable: L08's tests inject a
+stub here, L09 injects the real AVR SPI, and nothing above the seam changes.
 
 ---
 
@@ -68,17 +68,17 @@ the real hardware driver.
 
 `write()` and `read()` are both **non-blocking**. `write()` pushes a byte only if the transmitter has
 room, and reports whether it did; `read()` hands back a byte only if one has arrived. That maps
-directly onto the FIFO-backed `STATUS` bits from L04 and makes every operation deterministic to test.
+directly onto the FIFO-backed `STATUS` bits from L05 and makes every operation deterministic to test.
 Blocking versions, which spin until the peripheral is ready, are a thin convenience built on top, an
-exercise in L06 rather than part of the core.
+exercise in L08 rather than part of the core.
 
 ---
 
 ## What's ahead
 [Appendix B](./b_exercises.md) is the exercises: build the register map, the transport interface,
-and the driver interface, then implement that interface once as `driver::uart::Stub`. In L06 you
-implement the `Uart` driver over these contracts, using the register protocol, and test it with a
-scripted `driver::transport::Stub`.
+and the driver interface, then implement that interface once as `driver::uart::Stub`. In L07 you
+implement the `Uart` driver over these contracts, using the register protocol, and in L08 you test it
+with a scripted `driver::transport::Stub`.
 
 ---
 

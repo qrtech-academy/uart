@@ -1,120 +1,203 @@
 # Appendix B
 
-## What you are building
+## Exercises
+These exercises supply the half L07 left out: a transport that can be scripted, so the provided host
+suite can drive the real `Uart` with no hardware, plus the blocking helpers on top of the
+non-blocking core. You write the stub and the helpers; the provided host suite (`make test`) is the
+check, and it is the first one the C++ half of the course has been able to run. A small demo
+(`main.cpp`) is provided too, listed in full in [Exercise 2.2](#exercise-22---the-provided-demo).
 
-### The `app::EchoNode` application
-`EchoNode` is the application that finishes the course: it receives a byte over the UART and sends it
-straight back. On the bench, what you type in the terminal comes back to you, having crossed every
-layer the course built. The application itself is tiny, because all the hard work is already done and
-tested underneath it: the driver, the transport, the peripheral. `EchoNode` just spends that stack.
+Work in `fw/`. You will add:
 
-The important idea is that `EchoNode` is **software you write and host-test before you touch the
-bench**. It depends only on `driver::uart::Interface`, not on `Uart`, `AvrSpi`, or any hardware, so
-you build it, test it against the UART stub, and only *then* flash it and bring it up (the last rung
-of [Appendix C](./c_bringup.md)). By the time it reaches the bench, its logic is already proven; the
-only thing the bench adds is the wiring. This is the same discipline the whole course runs on -
-host-test behind the interface seam first, hardware last - applied one level up, to the application.
+```text
+include/
+    driver/
+        uart/
+            blocking.hpp
+        transport/
+            stub.hpp
+source/
+    main.cpp            (provided; the host demo, copied from Exercise 2.2)
+test/
+    uart/
+        uart_test.cpp   (provided; the host suite, already in the repository)
+```
 
-This appendix **describes** `EchoNode`; you write it yourself. The UART stub it is tested against
-was written in L05, as soon as the interface it implements existed.
+The stub joins the transport interface in `driver::transport` (the demo may use a small `app`
+namespace). These conventions apply to `include/` and `source/`, which have to cross-compile for the
+ATmega; `test/` and `include/arch/test/` are host-only and never reach avr-gcc, which is why the
+provided suites next to them use `<cstdint>`, `std::`, `namespace driver::uart::test` and
+`[[nodiscard]]` freely. Follow the same AVR-portable conventions as
+[L06](../../L06/appendix/b_exercises.md): `<stdint.h>` and bare `uint8_t` / `size_t` (no `std::`),
+nested namespace blocks (not `namespace driver::uart { ... }`), and no `[[nodiscard]]`. Build the
+application with `make build` and the tests with `make test`.
 
----
-
-### The application seam: `app::Interface`
-Applications sit behind their own interface, `app::Interface`, exactly as drivers sit behind
-`driver::uart::Interface`. It declares a single operation, `run(const bool& stop)`, which runs the
-application until `stop` becomes `true`. `main()` holds an `app::Interface&` and calls `run()`, so it
-neither knows nor cares which application it runs; swapping `EchoNode` for another is a one-line
-change in `main()`.
-
-`stop` is a `const bool&`, a flag the application only *reads*, hence the `const`, owned by whoever
-started it. Setting it `true` asks the application to return from `run()`, which is a clean shutdown
-and, in a test, the way the loop is ended. It is a plain `bool` rather than a `std::atomic`, because
-avr-libc is freestanding and ships no `<atomic>`, and on the single-core ATmega a byte read is
-already indivisible.
-
----
-
-### `app::EchoNode`
-`EchoNode` implements `app::Interface`. Write it as `include/app/echo_node.hpp` (the declarations)
-and `source/app/echo_node.cpp` (the definitions), in the `app` namespace, in the same AVR-portable
-style as the driver (`<stdint.h>` and bare types, nested namespace blocks, no `[[nodiscard]]`). It
-is `final`, non-copyable, and non-movable.
-
-**Member variable.** There is one: `driver::uart::Interface& myUart`, the UART driver to echo over,
-injected through the constructor and held by reference. That reference is what lets the *same* class
-run over the concrete `Uart` on hardware and over the UART stub in a test, with no change. Because it
-is a reference it is set once at construction and never rebound, which is also why copy and move are
-deleted: a reference member cannot be reassigned, the same reason `Uart` deletes them.
-
-**Methods.** The constructor, `EchoNode(driver::uart::Interface& uart)`, is `explicit` and
-`noexcept`. It takes the driver to echo over and stores it in `myUart`, and it does no I/O, since
-construction only wires the dependency and therefore cannot fail.
-
-`run(const bool& stop)` is the application loop, `noexcept`, overriding `app::Interface::run()`. It
-repeats until `stop` is `true`, and on each pass it checks `stop`, asks `myUart` for a byte with the
-**non-blocking** `read()`, and, if one arrived, echoes it straight back with `writeBlocking()`.
-
-The receive is a poll rather than `readBlocking()` on purpose. A blocking read would wait forever for
-a byte and never look at `stop` again, so the loop could not be stopped, and a test of it would hang.
-Polling `read()` returns to the top of the loop every pass to re-check `stop`, which is exactly what
-lets a caller, or the test, end it. The echo write may block, using `writeBlocking()`, because the
-byte is already in hand and simply has to go out.
+The suite is guarded on all four driver headers - `register_map.hpp` and `uart.hpp` from L06 and
+L07, `stub.hpp` and `blocking.hpp` from here - so it reports there is nothing to do until the last
+of them exists. Adding the two files below is what switches it on.
 
 ---
 
-### Host-testing it, before any hardware
-Because `EchoNode` depends only on `driver::uart::Interface`, you test it against the **UART stub**
-you wrote back in [L05](../../L05/appendix/b_exercises.md), the moment that interface existed: no
-`Uart`, no transport, no FPGA. This is the session it finally earns its keep. The trick that makes
-`run()` return in a test is the `stop` flag: the stub sets `stop` to `true` the moment its scripted
-RX runs out, so `run()` echoes every queued byte and then ends on the next check. The test queues
-the input, constructs the `EchoNode` over the stub, calls `run(stop)`, and asserts the stub's
-recorded TX equals what it queued, in order. The suite lives in `test/app/echo_node_test.cpp` and,
-like the other host tests, may use full modern C++; run it with `make test`.
+# Exercise Set 1 - The scripted stub
 
-That termination trick is also a check on your implementation: because it depends on `run()` polling
-`read()` and re-checking `stop`, a `run()` that blocked in `readBlocking()` would hang the test - the
-test telling you the loop is not actually stoppable.
+## Exercise 1.1 - `driver::transport::Stub`
+In `include/driver/transport/stub.hpp`, build a header-only `driver::transport::Stub` that
+implements `driver::transport::Interface` so the driver can be tested with no hardware. It is the
+wire, scripted, and it has three jobs.
+
+The provided test suite binds to this stub by name, so the names below are part of the exercise
+rather than suggestions: a stub with the right behaviour but different member names will not
+compile against `test/uart/uart_test.cpp`. It needs a default constructor, since every test builds
+one with `transport::Stub stub{};`.
+
+That suite opens with four `TransportStub` cases that check the stub itself, before any driver case
+runs. They are there because every `Uart` case reads what the stub was scripted to reply, so a stub
+bug surfaces as a *driver* failure: queue the four bytes least significant first, for instance, and
+the suite reports `Uart.WriteWhenReadyPushesTxData` red, pointing at `readReg()`, which is correct.
+Get the `TransportStub` cases green first and the failures below are genuinely yours.
+
+It must **record** every call. Append each byte passed to `transfer()` to a fixed-size `uint8_t`
+buffer with a running length, where a capacity of 100 bytes is plenty for these tests. Expose that
+record through `txLen()`, returning the number of bytes captured, and `txByte(index)`, returning
+the byte at a position and `0` for an index past the end. Both must be **`const`**, because the
+tests inspect the stub through a `const transport::Stub&`. Keep two `uint16_t` counters as well,
+one bumped by `begin()` and one by `end()`, exposed as `beginCalls()` and `endCalls()`, also
+`const`. These are not optional: the suite asserts on them in eight separate cases, because they
+are what proves a transaction was framed exactly once and that the two stay balanced.
+
+It must **play back** bytes on `transfer()`, returning the next byte from a preloaded response
+buffer tracked by an index, and returning `0x00` once that buffer is exhausted. This is the `MISO`
+the driver reads.
+
+And it must offer helpers to script that response. `injectRxByte(uint8_t)` queues a single byte, and
+`injectRxWord(uint32_t)` queues a whole register value **most significant first**, so that a
+`readReg` sees exactly that value. `clearRxData()` resets the reply buffer and its index, so one
+test can script several reads.
+
+Give the two a *different name* rather than overloading one name on width. An integer literal
+converts equally well to `uint8_t` and to `uint32_t`, so an overload pair would make
+`stub.injectRx(0x41)` ambiguous and force every call site to spell out the type of its argument.
+Two names cost nothing and keep the call sites readable, which is why the L06 UART stub is built the
+same way.
+
+Two fixed `uint8_t` buffers with a length each, one for what the driver sent and one for the scripted
+replies, are all it takes; no dynamic containers are needed. Both are **linear buffers, not FIFOs**:
+the record buffer is a write-only append log the test reads back afterward, and the reply buffer is
+read front-to-back through an advancing index. No circular wraparound, no pop-with-shift; just reset
+each length, and the read index, to zero at the start of a test.
+
+Keep it dependency-injected: a test constructs a `Stub`, constructs a `Uart` over it, drives the
+driver, and then asserts against the `Stub`'s record.
 
 ---
 
-### On the bench
-Nothing about the class changes for hardware. The application `main()` on the Nano constructs the
-real stack under the same interface - an `AvrSpi`, a `Uart` over it, `configure()`d for 115200 8N1,
-then an `EchoNode` over the `Uart` - and calls `run()` with a `stop` flag it leaves `false`, so the
-node echoes forever. That is the last rung of the [bring-up ladder](./c_bringup.md): the exact class
-you host-tested, now echoing real characters typed in the terminal, over real SPI, through your own
-VHDL peripheral.
-
 ---
 
-## Exercise 1 - `app::EchoNode`
-**a)** Write `include/app/interface.hpp` first - the `app::Interface` seam described above: a virtual
-`noexcept` destructor that is `= default`, and the single pure virtual `run(const bool& stop)
-noexcept`. Then write `include/app/echo_node.hpp` and `source/app/echo_node.cpp` from the description
-above, the `myUart` member, the constructor, `run(const bool& stop)`, and the deleted copy and move,
-so that `EchoNode` implements `app::Interface`. Run `make test` and confirm the echo test passes with
-no hardware.
+# Exercise Set 2 - Using the driver
 
-**b)** The test drives `run()` with the stub, which stops once its scripted RX is exhausted, queuing
-the bytes `0x00`, `0x41`, and `0xFF`. Add a case that queues **nothing** and confirm `run()` returns
-immediately, having sent nothing. Which implementation mistake is this the only case that catches?
+## Exercise 2.1 - Blocking helpers
+The interface's `write()` and `read()` are non-blocking by design. Build the thin blocking
+convenience on top, in a new header `include/driver/uart/blocking.hpp`, as free functions in the
+`driver::uart` namespace. Keep the same AVR-portable style as the rest of the driver (`<stdint.h>`
+and bare types, nested namespace blocks). Both take `Interface&`, not `Uart&`, so they work over any
+implementation; `uart.write` / `uart.read` dispatch to the concrete driver at runtime.
 
-**c)** Method `run(const bool& stop)` is the unit under test, ended by the flag. Explain why `run()`
-must poll the non-blocking `read()` rather than call `readBlocking()`, and connect it to why `stop`
-is passed by reference (and read every pass) rather than returned or checked once.
+### a) Write a byte, blocking
+Add a free function `writeBlocking()` that sends one byte, waiting until the transmitter accepts it.
+It takes a `driver::uart::Interface&`, the driver, and a `uint8_t`, the byte to send; it spins on
+`uart.write(byte)` until that returns `true` and then returns nothing. Mark it `inline`, since it is
+defined in a header and that avoids a one-definition-rule violation once more than one file includes
+it, and mark it `noexcept`.
 
-**d)** Change `EchoNode` to echo each byte back **uppercased** (leave non-letters alone), and update
-the test. Keep the transformation inside `run()`; the point is that the application layer is exactly
-where such policy belongs, above a driver that only moves bytes.
+### b) Read a byte, blocking
+Add a free function `readBlocking()` that receives one byte, waiting until one is available. It takes
+a `driver::uart::Interface&`, the driver, and a reference to a `uint8_t` where the received byte is
+stored; it spins on `uart.read(byte)` until that returns `true` and then returns nothing. It is
+`inline` and `noexcept` for the same reasons.
+
+Each is a one-line spin loop, so header-only `inline` functions are all you need; no `.cpp`. They
+belong above the driver, not inside it: the core stays deterministic and testable, and the spinning
+lives where a caller opts into it.
+
+## Exercise 2.2 - The provided demo
+Use this test program to test communication end to end. It is **provided** (like the host suite);
+you do not write it. Create `source/main.cpp` and copy it in as it stands:
+
+```cpp
+/**
+ * @brief Application entry point.
+ */
+#include <stdint.h>
+
+#include "driver/transport/stub.hpp"
+#include "driver/uart/blocking.hpp"
+#include "driver/uart/register_map.hpp"
+#include "driver/uart/uart.hpp"
+
+using namespace driver;
+
+/**
+ * @brief Application entry point.
+ *
+ *        On the host, the demo uses a scripted transport::Stub because no real UART is available.
+ *        It reports TX ready and returns one received byte so the blocking calls can complete. On
+ *        the ATmega328P (L09), the real transport reports the actual hardware status.
+ *
+ *        Each register read transfers one command byte followed by four data bytes, so scripted
+ *        responses begin with a command-phase placeholder. Because writes also consume scripted
+ *        bytes, each response is installed immediately before use and clearRxData() resets the
+ *        script between phases.
+ *
+ * @return 0 on termination of the program.
+ */
+int main()
+{
+    constexpr uint16_t baudDiv{27U};
+    constexpr uint8_t txByte{0x7FU};
+    constexpr uint8_t dummyCmd{0U};
+
+    constexpr uint32_t rxData{txByte};
+    constexpr uint32_t txReady{static_cast<uint32_t>(1U << uart::status::TX_READY)};
+    constexpr uint32_t rxValid{static_cast<uint32_t>(1U << uart::status::RX_VALID)};
+
+    transport::Stub transport{};
+    uart::Uart uart{transport};
+    uart.configure(baudDiv);
+
+    // Report TX ready, then send a byte.
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(txReady);
+    uart::writeBlocking(uart, txByte);
+
+    // Report RX valid and hand back the byte, then receive it.
+    transport.clearRxData();
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(rxValid);
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(rxData);
+
+    uint8_t rxByte{};
+    uart::readBlocking(uart, rxByte);
+    return 0;
+}
+```
+
+It shows the API end to end: it constructs a `Uart` over a `driver::transport::Stub`, `configure()`s
+it, then uses your `writeBlocking` / `readBlocking` to send a byte and receive one back. Because the
+blocking calls spin until the transport reports ready, the demo scripts the stub just before each
+call so it completes instead of spinning forever; on the target in L09 the real AVR SPI transport
+reports actual hardware status, so the same `main` runs unchanged with no scripting.
+
+Read it, then `make build` and run `./uart_firmware`: it exits cleanly once your `Uart`, `Stub`, and
+blocking helpers are correct. The demo is illustration, not a test; the real checking is `make test`.
+
+---
 
 ---
 
 ## What's ahead
-With `EchoNode` written and host-tested, [Appendix C](./c_bringup.md) is the bench: flash it and
-climb the bring-up ladder to watch it echo in real hardware, then trace one byte through every layer
-of the stack the course built.
+L09 replaces the stub with `AvrSpi`, the real SPI on the ATmega328P, and the driver, the interface,
+and the register map all run unchanged over the wire. The suite you just turned green runs unchanged
+too, which is the return on putting the seam where L06 put it.
 
 ---
-
