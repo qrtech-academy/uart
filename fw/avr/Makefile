@@ -5,7 +5,8 @@
 #
 # Like the rest of the repository, this Makefile is written to sit in place before the code it
 # builds exists: with no avr/main.cpp yet, `make build` reports that there is nothing to do rather
-# than failing, so CI stays green from L01 through L08 and only starts building in L09.
+# than failing, from L01 through L08; it only starts building in L09. (CI never builds this
+# directory: ci/build_cpp.sh skips fw/avr, since it needs avr-gcc.)
 #
 # Usage:
 #   make build     compile and link, then report flash and RAM use
@@ -39,8 +40,8 @@ AVRDUDE := avrdude
 #
 # The driver is deliberately written to a conservative subset: it compiles unchanged at -std=c++11,
 # c++14 and c++17. c++14 is what this build asks for because every avr-gcc in circulation accepts
-# it, whereas -std=c++17 is not a recognized option before GCC 8 and so fails outright on the
-# toolchain Microchip Studio ships. Nothing here needs a C++17 feature: in particular the register
+# it, whereas -std=c++17 is not a recognized option before GCC 7 (GCC 5 and 6 know it only as
+# -std=c++1z) and so fails outright on the toolchain Microchip Studio ships. Nothing here needs a C++17 feature: in particular the register
 # map uses plain `constexpr` constants, not C++17 inline variables.
 #
 # -fno-threadsafe-statics drops the __cxa_guard_* calls a function-local static would otherwise

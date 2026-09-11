@@ -89,11 +89,11 @@ makes a failed check stop the simulation with a non-zero exit code rather than p
 running on to a misleading "pass".
 
 Running `uart_regs_tb` or `uart_top_tb` by hand also prints one `NUMERIC_STD.TO_INTEGER: metavalue
-detected` note at time 0. It is harmless - it comes from evaluating `to_integer(unsigned(reg_addr))`
-in the delta before any driver has resolved - and `make build-vhdl` suppresses it with
-`--ieee-asserts=disable-at-0`, which silences IEEE library assertions at time 0 only and leaves
-every assertion in these testbenches firing normally. Add the same flag to a manual `ghdl -r` if the
-note gets in your way.
+detected` warning at time 0. It is harmless - it comes from evaluating
+`to_integer(unsigned(reg_addr))` in the delta before any driver has resolved - and `make build-vhdl`
+suppresses it with `--ieee-asserts=disable-at-0`, which silences IEEE library assertions at time 0
+only and leaves every assertion in these testbenches firing normally. Add the same flag to a manual
+`ghdl -r` if the warning gets in your way.
 
 ---
 

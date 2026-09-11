@@ -32,7 +32,7 @@ TEST(EchoNode, EchoesQueuedBytesThenStops)
     constexpr uint8_t rxLen{3U};
     constexpr uint8_t rxBuf[rxLen]{0x00U, 0x41U, 0xFFU};
 
-    bool stop{false};
+    volatile bool stop{false};
     uart::Stub uart{stop};
     EchoNode node{uart};
 

@@ -61,7 +61,9 @@ public:
      *
      *        Reading SPDR clears SPIF on the real part, so it does here too. The byte returned is
      *        whatever the last *completed* transfer delivered: a transfer that is still in flight
-     *        has not written myRx yet, so a driver that skips the poll reads the previous byte.
+     *        has not written myRx yet, so a driver that skips the poll reads a stale byte. Since
+     *        only the poll completes a transfer here, a driver that never polls reads the value
+     *        left from reset, 0.
      *
      * @return Byte the next SPDR read returns.
      */
