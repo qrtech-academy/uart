@@ -120,7 +120,7 @@ for entry in "${TESTBENCHES[@]}"; do
     # not used here: it ends the simulation with exit code 0, turning a hang into a false pass,
     # whereas a timeout is a real failure and is reported as one.
     #
-    # --ieee-asserts=disable-at-0 silences the numeric_std "metavalue detected" note that the
+    # --ieee-asserts=disable-at-0 silences the numeric_std "metavalue detected" warning that the
     # delta-0 evaluation of to_integer(unsigned(reg_addr)) emits before any driver has resolved.
     # It suppresses only IEEE library assertions at time 0; every assertion in these testbenches
     # is a user assertion and still fires normally.
