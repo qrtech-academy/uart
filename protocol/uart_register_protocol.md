@@ -51,8 +51,9 @@ representable rate is `50_000_000 / (16 * 65535)`, or about 48 baud.
 Because `BAUD_DIV` is an integer, the achieved rate is only as close as the rounding allows. At
 115200 the exact divider is 27.126, so `BAUD_DIV = 27` gives 115740.7 baud, about +0.47% fast; at
 9600 the error is -0.15%. Both are comfortably inside what an 8-bit frame tolerates, since the
-receiver resynchronizes on every start bit and only has to still be inside the stop bit nine bit
-periods later, which allows a few percent of combined error between the two ends.
+receiver resynchronizes on every start bit and only has to be still inside the stop bit when it
+samples it, nine and a half bit periods later, which allows a few percent of combined error between
+the two ends.
 
 ---
 
@@ -84,8 +85,9 @@ carries data, and stores but does not act on the rest. Specifically:
 * **There is no interrupt line.** `uart_top` has eight ports and none of them is an IRQ output, so
   the two IRQ mask bits mask nothing. The system is poll-only, end to end.
 * **Only the framing error flag has a producer.** The receiver emits `frame_err` and nothing else,
-  so `ER_PARITY` and `ER_OVERRUN` are defined positions that always read zero. Parity detection and
-  overrun detection are the natural extensions of L03 and L05 respectively.
+  so `ER_PARITY` and `ER_OVERRUN` are defined positions that read zero unless software writes a
+  one to them. Parity detection and overrun detection are the natural extensions of L03 and L05
+  respectively.
 
 These are reservations, not omissions: the positions are fixed so that an implementation which
 adds them later stays compatible with both halves as written.
@@ -101,8 +103,8 @@ This mirrors the poll-status / read-data / acknowledge shape of a typical hardwa
 
 ## Register Semantics (what the register bank must implement)
 The TX and RX cores expose single-cycle pulses and levels (L02-L03); the register map promises
-sticky, poll-able bits and FIFO-backed data. Bridging the two is the register bank's whole job
-(L05):
+poll-able bits, sticky error flags and FIFO-backed data. Bridging the two is the register bank's
+whole job (L05):
 
 * **`STATUS` bit 0 (TX ready)**: a level - the TX FIFO is not full. A `TX_DATA` write while it is
   clear is dropped (there is no room), which is why the driver must poll it first.
@@ -118,9 +120,10 @@ sticky, poll-able bits and FIFO-backed data. Bridging the two is the register ba
   (`RX_POP`), so that the side effect is a committed, abort-safe action and never a by-product of
   reading. This split is the point of L05: **a read that popped a FIFO would need write-like
   commit-and-abort discipline; keeping the read pure and the pop explicit avoids that entirely.**
-* **`BAUD_DIV` / `CTRL`**: plain read/write registers; the cores sample them continuously, so a
-  change takes effect on the next frame. Reconfiguring mid-frame is the driver's problem, not the
-  bank's.
+* **`BAUD_DIV` / `CTRL`**: plain read/write registers. `baud_gen` reads `BAUD_DIV` continuously, so
+  a new divider takes effect from the next baud tick, mid-frame if a frame is in flight; `CTRL` is
+  stored only (see above). Reconfiguring mid-frame is the driver's problem, not the bank's, which is
+  what `STATUS` bit 3 (TX idle) is for: the driver waits for it before changing the baud rate.
 
 ---
 
@@ -167,16 +170,19 @@ Bit:      7    6    5    4    3    2    1    0
 ---
 
 ## Worked Example
-Configuring 115200 8N1, sending `'H'` (0x48), then polling and reading one received byte:
+Configuring 115200 8N1, sending `'H'` (0x48), then polling and reading one received byte. Each line
+is one transaction as the master sends it; on a read, the four bytes after the command byte are what
+comes back on `MISO`. `STATUS` is decoded by bit, not compared as a value: straight after reset it
+reads `0x09`, TX ready and TX idle together.
 
 ```text
 Write BAUD_DIV : 82 00 00 00 1B   (0x1B = 27)
-Write CTRL    : 81 00 00 00 01   (enable, 8N1)
-Read  STATUS  : 00 xx xx xx xx   -> ...01 means TX ready
-Write TX_DATA : 83 00 00 00 48   ('H' pushed into TX FIFO)
-Read  STATUS  : 00 xx xx xx xx   -> ...02 means RX valid
-Read  RX_DATA : 04 00 00 00 XX   -> XX is the received byte
-Write RX_POP  : 85 00 00 00 01   (advance the RX FIFO)
+Write CTRL     : 81 00 00 00 01   (enable, 8N1)
+Read  STATUS   : 00 xx xx xx xx   -> bit 0 set means TX ready
+Write TX_DATA  : 83 00 00 00 48   ('H' pushed into the TX FIFO)
+Read  STATUS   : 00 xx xx xx xx   -> bit 1 set means RX valid
+Read  RX_DATA  : 04 00 00 00 XX   -> XX is the received byte
+Write RX_POP   : 85 00 00 00 01   (advance the RX FIFO)
 ```
 
 ---
