@@ -1,0 +1,73 @@
+% Chapter 7, typeset from lectures/L07: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Driver, Built}
+\label{c7:ch}
+
+{\large\itshape The contracts get an implementation. Nothing runs it yet, which is what makes the
+reasoning matter.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The register protocol in code}: \code{readReg()} and \code{writeReg()} as the
+    five-byte SPI transactions of Part~3 of the protocol (\secref{proto:part3}), each moving its
+    bytes through the transport interface most significant byte first.
+  \item \textbf{\code{const} at a hardware boundary}: why \code{readReg()} is a \code{const} member
+    driving a non-\code{const} transport, what \code{const_cast} is doing there, and what it is
+    \emph{not} doing, since \code{const} never propagated through the reference member in the first
+    place.
+  \item \textbf{The \code{Uart} driver} on that core, implementing the \code{Interface} of
+    \chapref{6}: \code{configure}, the non-blocking \code{write}, and the poll, read and separate
+    \code{RX_POP} that make up the read path.
+  \item \textbf{Why the read path is three accesses and not one}: \code{RX_DATA} is a pure read,
+    \code{RX_POP} is what advances the FIFO, and the register bank of \chapref{5} is on the other
+    side of the wire enforcing exactly that.
+\end{itemize}
+\end{chapterbox}
+
+\chapref{6} designed the contracts; this chapter implements them. Nothing is tested yet, which is
+\chapref{8}'s job, so this chapter is entirely about the code that has to be right before a test can
+say so. After it you should be able to implement \code{readReg()} and \code{writeReg()} as byte
+sequences that match the protocol exactly, and explain why the four data bytes go most significant
+first; explain what \code{const} does and does not reach through a reference member, and justify the
+\code{const_cast} at the one line where a \code{const} method starts driving hardware; implement the
+\code{Uart} methods over that register core, including the poll, read and \code{RX_POP} split,
+injecting the transport through the constructor; and say what each of the three RX accesses would
+break if it were omitted, reordered, or folded into the one before it.
+
+\textbf{Before you start}, you need all of \chapref{6}: the register map, the transport interface
+(\code{driver::transport::Interface}), and the driver interface (\code{driver::uart::Interface}) that
+the driver implements. The chapter also assumes the register semantics of \chapref{5}, since the
+driver is the other side of that contract, and inheritance, \code{override} and dependency injection
+from modern embedded C++.
+
+Read \secref{c7:sec:driver}, which explains the register read and write core and the driver built
+over it. Re-read the register semantics of the protocol (\secref{proto:semantics}): every method in
+this chapter is one half of a promise the VHDL already keeps.
+
+Check that the driver compiles by running the compiler by hand, from \file{fw/}:
+
+\begin{shell}
+cd fw
+g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only source/driver/uart/uart.cpp
+\end{shell}
+
+\noindent That the compiler is run by hand is expected, and worth pausing on. \code{make build-cpp}
+has nothing to do for \file{fw/} yet: \code{make build} waits for the provided
+\file{source/main.cpp} that arrives in \chapref{8}, and the provided suite is guarded on four
+headers, two of which, \file{driver/transport/stub.hpp} and \file{driver/uart/blocking.hpp}, belong
+to \chapref{8}, so it stays switched off for one more chapter. Until then the compiler is the only
+thing checking this code, which is exactly why the byte order and the three-access read path are
+reasoned through rather than guessed at.
+
+\code{readReg} and \code{writeReg} are the whole protocol in about sixty lines, and the one place
+byte order can go wrong; \code{read()} matters as much, because the poll, read and separate pop is
+the contract of \chapref{5} showing up on the other side of the wire. The exercises in
+\secref{c7:sec:exercises} declare \code{class Uart final : public Interface}
+(Exercise~\ref{c7:ex:1.1}), implement the two private register helpers
+(Exercise~\ref{c7:ex:1.2}), and implement every public method of the interface over them
+(Exercise~\ref{c7:ex:1.3}); the remaining public methods follow the same shape as \code{read()}.
+
+\input{chapters/07/driver}
+\input{chapters/07/summary}
+\input{chapters/07/exercises}

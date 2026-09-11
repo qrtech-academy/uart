@@ -1,0 +1,238 @@
+% Section 1.4, from lectures/L01/appendix/c_exercises.md.
+
+\section{Exercises}
+\label{c1:sec:exercises}\label{c1:app:c}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c1:ex:1} reinforces \secref{c1:sec:uart_def};
+Exercises~\ref{c1:ex:2} and~\ref{c1:ex:3} go with \secref{c1:sec:uart_top}. \code{uart_def} is
+\textbf{provided} and only needs reading. \code{uart_top} is yours, and Exercise~\ref{c1:ex:2} is
+self-contained: everything needed to type \file{hw/uart_top.vhd}, from the entity down to the last
+internal signal, is below. \secref{c1:sec:uart_top} is where the reasoning behind it lives, and
+Exercise~\ref{c1:ex:3} asks for that reasoning back.
+
+\textbf{How to check your work.} Neither module has a testbench of its own in this chapter.
+\code{uart_def} is a package of constants, and \code{uart_top}'s system testbench,
+\code{uart_top_tb}, stays skipped until its datapath exists in \chapref{5}. So the check here is
+that \code{uart_top} \textbf{analyzes cleanly} against the transport it instantiates. Run GHDL from
+\file{hw/}; the preface's \emph{Setting up} has the full flow and what \code{--assert-level=error}
+does.
+
+The answers to every part that is not code are in \secref{sol:c1}. Try each part before you read its
+answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_def}}{Reasoning}
+\label{c1:ex:1}
+
+\xpart{a} \code{uart_def.vhd} is provided. Read it against \secref{c1:sec:uart_def}, then, without
+looking, name the seven register indices and the \code{STATUS}, \code{CTRL} and \code{ERROR_FLAGS}
+bit positions. Analyze it, so that the names are in your \code{work} library for everything that
+follows:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd
+\end{shell}
+
+\noindent There is nothing to elaborate or run; a clean analysis means the package compiles and its
+names are available to every module that later writes \code{use work.uart_def.all}.
+
+\xpart{b} These are bit \textbf{positions}, not masks: \code{ST_RX_VALID} is \code{1}, not
+\code{2}. Show how you would test the RX-valid bit of a status vector \code{status} using the
+constant, and contrast it with how the C++ driver forms the same test
+(\code{1U << status::RX_VALID}). Why does storing positions keep both sides identical to the
+protocol's ``bit N'' wording?
+
+\xpart{c} A teammate swaps two index values, setting \code{REG_RX_POP} to 6 and
+\code{REG_ERR_FLAGS} to 5. Nothing in this chapter notices. At what point in the course would the
+swap first surface as a failure, and in which testbench, if any? Say why it does not surface
+before then.
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_top}}{VHDL}
+\label{c1:ex:2}
+Build the skeleton in the order the file is written: the entity, the declarations, then the three
+instantiations and the one placeholder assignment. Each part below carries what that step needs. Do
+not instantiate \code{baud_gen}, \code{uart_tx}, \code{sync}, \code{uart_rx} or \code{uart_regs}
+yet, and do not declare their signals: those blocks arrive in Chapters~2 to~5, and each brings its
+own wiring with it.
+
+\xpart{a}\parttitle{The entity.} Declare the eight ports in exactly this order. \code{uart_top_tb}
+binds them by position, so the numbers are the contract; the names are yours.
+
+\begin{narrowtable}{@{}rlll@{}}
+  \thead{\#} & \thead{Port} & \thead{Dir} & \thead{Type} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} \\
+  2 & \code{reset_n} & in & \code{std_logic} \\
+  3 & \code{sclk} & in & \code{std_logic} \\
+  4 & \code{mosi} & in & \code{std_logic} \\
+  5 & \code{ss} & in & \code{std_logic} \\
+  6 & \code{rx} & in & \code{std_logic} \\
+  7 & \code{miso} & out & \code{std_logic} \\
+  8 & \code{tx} & out & \code{std_logic} \\
+\end{narrowtable}
+
+The file needs \code{ieee.std_logic_1164} for \code{std_logic}. It does not need
+\code{ieee.numeric_std} yet, since nothing here converts a vector to an integer, and it does
+\textbf{not} need \code{use work.uart_def.all}: the top wires the register bus but never names a bit
+on it, and \code{uart_regs} (\chapref{5}) is the only module that does. Follow the provided files'
+house style: a banner comment listing the inputs and outputs, then
+\code{architecture behaviour of uart_top is}.
+
+\xpart{b}\parttitle{The internal signals.} Declare only the signals \textbf{this} chapter wires.
+The method matters more than the list: open the entity of every module you are about to
+instantiate, and for each port that does not connect straight to a \code{uart_top} port, declare a
+signal of the same type to carry it. Here that means \code{reset_sync}, \code{spi_slave} and
+\code{spi_reg_bridge}, and nothing else. Each later chapter adds its own signals the same way, when
+it adds the block that needs them.
+
+Two naming conventions run through the whole design, and both are worth adopting now. Signals that
+carry SPI traffic between the two transport blocks take a \textbf{\code{spi_} prefix}. Signals that
+have been through a two-flop synchronizer take an \textbf{\code{_s2} suffix}, which is why the
+provided modules all expect \code{reset_s2_n} rather than \code{reset_n}.
+
+\begin{booktable}{@{}p{6.8em}p{15.2em}p{7.6em}L@{}}
+  \thead{Signal} & \thead{Type} & \thead{Driven by} & \thead{Read by} \\
+  \midrule
+  \code{reset_s2_n} & \code{std_logic} & \code{reset_sync}, in c) & every submodule \\
+  \code{spi_rx_data} & \code{std_logic_vector(7 downto 0)} & \code{spi_slave} &
+    \code{spi_reg_bridge} \\
+  \code{spi_rx_valid} & \code{std_logic} & \code{spi_slave} & \code{spi_reg_bridge} \\
+  \code{spi_ss_active} & \code{std_logic} & \code{spi_slave} & \code{spi_reg_bridge} \\
+  \code{spi_tx_data} & \code{std_logic_vector(7 downto 0)} & \code{spi_reg_bridge} &
+    \code{spi_slave} \\
+  \code{reg_addr} & \code{std_logic_vector(3 downto 0)} & \code{spi_reg_bridge} &
+    \code{uart_regs} (\chapref{5}) \\
+  \code{reg_wdata} & \code{std_logic_vector(31 downto 0)} & \code{spi_reg_bridge} &
+    \code{uart_regs} (\chapref{5}) \\
+  \code{reg_write} & \code{std_logic} & \code{spi_reg_bridge} & \code{uart_regs} (\chapref{5}) \\
+  \code{reg_rdata} & \code{std_logic_vector(31 downto 0)} & zeros, in d); then \code{uart_regs}
+    (\chapref{5}) & \code{spi_reg_bridge} \\
+\end{booktable}
+
+The four register-bus signals are here even though the block that answers on them is four chapters
+away, because \code{spi_reg_bridge} has ports for them and an instantiation must connect every port.
+That is the register bus existing with nothing behind it, which is the shape this chapter is really
+about.
+
+\code{reg_addr} is four bits, not three, even though there are only seven registers: the protocol's
+command byte reserves bits 3 to 0 for the index.
+
+\xpart{c}\parttitle{The reset synchronizer.} \code{reset_n} arrives from off-chip, so it must
+assert asynchronously and release synchronously, two flip-flops later. That job is done by the
+provided \code{reset_sync}, which you instantiate rather than write; its two internal flops are its
+own business, so the only signal it adds to your top is \code{reset_s2_n}. Everything inside
+\code{uart_top} takes \code{reset_s2_n}, and nothing but this instance sees \code{reset_n} directly.
+
+\bookfigure{reset_sync}{Module \code{reset_sync}}{c1:fig:reset_sync}
+
+\begin{narrowtable}{@{}rlll@{}}
+  \thead{\#} & \thead{\code{reset_sync} port} & \thead{Dir} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{clock} \\
+  2 & \code{reset_n} & in & \code{reset_n} \\
+  3 & \code{reset_s2_n} & out & \code{reset_s2_n} \\
+\end{narrowtable}
+
+\begin{vhdlcode}
+reset_sync: entity work.reset_sync
+    port map(clock, reset_n, reset_s2_n);
+\end{vhdlcode}
+
+\xpart{d}\parttitle{The transport.} Instantiate \code{spi_slave} and \code{spi_reg_bridge}, both
+positionally. The last column names a signal from part b) or a port from part a).
+
+\bookfigure{spi_slave}{Module \code{spi_slave}}{c1:fig:spi_slave}
+
+\begin{booktable}{@{}rp{7.4em}p{1.8em}p{15.2em}L@{}}
+  \thead{\#} & \thead{\code{spi_slave} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{sclk} & in & \code{std_logic} & \code{sclk} \\
+  4 & \code{mosi} & in & \code{std_logic} & \code{mosi} \\
+  5 & \code{ss} & in & \code{std_logic} & \code{ss} \\
+  6 & \code{tx_data} & in & \code{std_logic_vector(7 downto 0)} & \code{spi_tx_data} \\
+  7 & \code{miso} & out & \code{std_logic} & \code{miso} \\
+  8 & \code{rx_data} & out & \code{std_logic_vector(7 downto 0)} & \code{spi_rx_data} \\
+  9 & \code{rx_valid} & out & \code{std_logic} & \code{spi_rx_valid} \\
+  10 & \code{ss_active} & out & \code{std_logic} & \code{spi_ss_active} \\
+\end{booktable}
+
+\bookfigure{spi_reg_bridge}{Module \code{spi_reg_bridge}}{c1:fig:spi_reg_bridge}
+
+\begin{booktable}{@{}rp{9.8em}p{1.8em}p{15.2em}L@{}}
+  \thead{\#} & \thead{\code{spi_reg_bridge} port} & \thead{Dir} & \thead{Type} &
+    \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{ss_active} & in & \code{std_logic} & \code{spi_ss_active} \\
+  4 & \code{rx_data} & in & \code{std_logic_vector(7 downto 0)} & \code{spi_rx_data} \\
+  5 & \code{rx_valid} & in & \code{std_logic} & \code{spi_rx_valid} \\
+  6 & \code{reg_rdata} & in & \code{std_logic_vector(31 downto 0)} & \code{reg_rdata} \\
+  7 & \code{tx_data} & out & \code{std_logic_vector(7 downto 0)} & \code{spi_tx_data} \\
+  8 & \code{reg_addr} & out & \code{std_logic_vector(3 downto 0)} & \code{reg_addr} \\
+  9 & \code{reg_wdata} & out & \code{std_logic_vector(31 downto 0)} & \code{reg_wdata} \\
+  10 & \code{reg_write} & out & \code{std_logic} & \code{reg_write} \\
+\end{booktable}
+
+The names that look shared are not one bus. \code{spi_slave}'s \code{rx_data} is an output and the
+bridge's \code{rx_data} is an input, so \code{spi_rx_data} runs from the slave to the bridge;
+\code{spi_tx_data} runs the other way, from the bridge's \code{tx_data} output into the slave's
+\code{tx_data} input. Read them as two one-directional lanes and the wiring falls out.
+
+Nothing drives \code{reg_rdata} yet, so give it a value:
+
+\begin{vhdlcode}
+reg_rdata <= (others => '0');
+\end{vhdlcode}
+
+\noindent The file would analyze without this; an undriven signal is legal. It is here so that the
+bridge reads a defined value instead of \code{'U'} while the bank is missing. \textbf{Delete this
+line in \chapref{5}}, when \code{uart_regs} starts driving \code{reg_rdata}. Leave it in and the
+vector has two drivers: every \code{'1'} from the bank resolves against the \code{'0'} here to
+\code{'X'}, and the system testbench fails on a read-back caused by a line you wrote four chapters
+earlier.
+
+\xpart{e}\parttitle{The check.} Analyze the skeleton against the package and the transport it
+instantiates:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd
+\end{shell}
+
+\noindent Then run \code{make build-vhdl} from the repository root. Confirm that \code{uart_def} and
+\code{uart_top} both analyze cleanly, that the two transport testbenches pass (they are the only
+ones that can run this early, since they check provided modules), and that \code{uart_top_tb}
+reports \textbf{skipped}. Which modules does the skip message name as missing, and which chapter
+(2, 3, 4 or 5) builds each? One of the six is never instantiated by \code{uart_top} at all; find
+it, and say why the build needs it anyway.
+
+% ------------------------------------------------------------------------------------------
+\exercise{What a clean analysis does not prove}{Reasoning}
+\label{c1:ex:3}
+\code{uart_top} analyzes, and almost nothing about it is proven. That gap is the lesson of this
+chapter.
+
+\xpart{a} Swap two same-type ports in your entity, say \code{sclk} and \code{mosi}, and re-analyze.
+Does \code{ghdl -a} catch it? If not, at which point in the course does the mistake finally show up,
+and what does that tell you about the cost of a positional contract?
+
+\xpart{b} \code{reg_rdata} is tied to zeros and no register bank answers on the bus. What does an
+SPI read transaction return with that placeholder in place, and why is that harmless until
+\chapref{5}? What would it return instead if you left the placeholder out altogether?
+
+\xpart{c} The provided \code{reset_sync} asserts asynchronously but releases synchronously. Suppose
+it released asynchronously too, wiring \code{reset_n} straight to every block. Describe the failure
+that a near-edge release could cause. Then explain why \code{sync} (\chapref{3}) cannot do this job,
+given that it is also two flip-flops in series: look at its port list and say what it would need
+that only \code{reset_sync} can give it.
+
+\xpart{d} Why does building \code{uart_top} before any block it instantiates fix each block's port
+list in advance? What has to be true about \code{baud_gen}'s ports in \chapref{2} for its
+instantiation here to bind without you touching the top again?

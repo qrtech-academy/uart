@@ -1,0 +1,37 @@
+% Section 9.3, from lectures/L09/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c9:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Configure the AVR SPI master registers} correctly for the transport contract, and
+    explain each bit they set.
+  \item \textbf{Implement \code{AvrSpi}} so that the existing driver and its host tests are reused
+    unchanged.
+  \item \textbf{Explain which host-side idioms do not survive a freestanding build}, and what
+    replaces them.
+  \item \textbf{Synthesize and program the DE0-CV}, and read a fit and timing report well enough to
+    say whether the design met timing at 50\,MHz.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Which idiom from the host build fails to compile freestanding, and how does this chapter
+    replace it?
+  \item The AVR SPI runs at 1\,MHz: which prescaler setting produces it from a 16\,MHz clock, and
+    what actually limits \code{SCK} on this bench, given that the FPGA slave could keep up with
+    considerably more?
+  \item If \code{SPDR} is read a cycle too early, before \code{SPIF} is set, what value comes back,
+    and how does the transport avoid it?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+In \chapref{10} both halves are on the bench: two links, a level shifter, and a bring-up ladder that
+ends with an echo application driven end to end.

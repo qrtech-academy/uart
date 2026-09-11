@@ -1,0 +1,41 @@
+% Section 6.2, from lectures/L06/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c6:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Transcribe the register map} into \file{register_map.hpp} as \code{constexpr}
+    constants, and explain why a value there that disagrees with the hardware is a bench-only bug.
+  \item \textbf{Design the transport interface} (\code{driver::transport::Interface}) and say what it
+    buys: the same driver over a stub in \chapref{8} and over the real AVR SPI in \chapref{9}, with
+    nothing above the seam changing.
+  \item \textbf{Turn the register-level flow into a clean, abstract \code{Interface}}, and explain
+    why non-blocking \code{write} and \code{read} map directly onto the FIFO-backed \code{STATUS}
+    bits of \chapref{5}.
+  \item \textbf{Implement that interface once}, as a \code{Stub} backed by two linear buffers, and
+    explain what a test double has to be faithful about and what it may ignore.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Why is the transport seam placed at the raw-byte level rather than exposing \code{readReg}
+    and \code{writeReg} directly, and what does the byte-level choice let a stub do?
+  \item \code{write} and \code{read} are non-blocking and report whether they did anything: which
+    \code{STATUS} bits of \chapref{5} make that possible, and why is a non-blocking core easier to
+    test than a blocking one?
+  \item The register map is written once in VHDL (\file{uart_def.vhd}) and once in C++
+    (\file{register_map.hpp}): what goes wrong if the two disagree, and at which stage would you
+    first notice?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+In \chapref{7} the contracts get an implementation: the \code{Uart} driver over the transport
+interface, and the register read and write protocol underneath it, the five-byte transaction, most
+significant byte first. The stub that verifies it on the host follows in \chapref{8}.

@@ -1,0 +1,243 @@
+% Preface: the README's introduction, About the Course, Prerequisites and Written Papers sections,
+% the course plan and the tools and hardware from info/README.md, and the build flow from
+% hw/README.md and fw/README.md, as the front matter of a book.
+
+\chapter{Preface}
+\markboth{Preface}{Preface}
+
+This book is the entry course to the \emph{FPGA-meets-MCU} pattern: build a hardware peripheral in
+VHDL, write its driver in modern C++, then integrate the two across a real chip boundary. UART is
+the simplest serial peripheral there is, chosen deliberately so that you meet the \emph{pattern},
+the whole loop of hardware, driver and integration, before meeting a hard protocol. Harder
+protocols apply the same loop later, in far greater depth; this is where its shape is learned.
+
+The full stack, top (the application) to bottom (the wire), spans two chips joined by two serial
+links. You write every layer of it except the SPI transport, which is provided:
+
+\begin{booktable}{@{}p{14.6em}p{8.4em}L@{}}
+  \thead{Layer} & \thead{Runs on} & \thead{Written by} \\
+  \midrule
+  \code{app::EchoNode} & ATmega328P (C++) & you \\
+  The driver interface & ATmega328P (C++) & you \\
+  \code{driver::uart::Uart} & ATmega328P (C++) & you \\
+  The AVR SPI master, a \code{driver::transport::Interface} & ATmega328P (C++) & you \\
+  \multicolumn{3}{@{}l}{\itshape The SPI link: four wires and a 5\,V to 3.3\,V level shifter (the
+    control plane)} \\
+  \code{spi_slave} and \code{spi_reg_bridge} & DE0-CV (VHDL) & provided, a black box \\
+  The register bank & DE0-CV (VHDL) & you \\
+  \code{uart_top}: baud generator, TX, RX, FIFOs & DE0-CV (VHDL) & you \\
+  \multicolumn{3}{@{}l}{\itshape The UART link: \code{tx} and \code{rx} at 3.3\,V (the data
+    plane)} \\
+  A PC terminal on a USB-serial adapter & external & --- \\
+\end{booktable}
+
+Note the two serial links, and that they are \emph{not} the same protocol. The \textbf{control
+plane} is SPI: the ATmega328P is the CPU, and it configures and drives the FPGA's UART peripheral
+by reading and writing the peripheral's registers over SPI. The \textbf{data plane} is the UART
+itself: the peripheral's own \code{tx} and \code{rx} lines carry bytes to and from the outside
+world. There is no soft CPU anywhere; the processor is the real ATmega328P on an Arduino Nano.
+
+\section*{Why drive a UART over SPI when the ATmega already has one?}
+Because the ATmega's own UART is not the subject; the \emph{pattern} is. Here the ATmega plays host
+CPU to a memory-mapped peripheral it does not contain, reaching it across a chip boundary. That is
+the real situation with FPGA and ASIC peripherals, and it is what makes the skill transfer to the
+next protocol. Building a UART this way is not the efficient way to get a UART; it is the way to
+learn the boundary, with a protocol simple enough that nothing about the boundary is hidden by the
+protocol's own complexity.
+
+\section*{What the book covers}
+The book covers the hardware/software boundary of an embedded system through the simplest serial
+peripheral there is:
+\begin{itemize}
+  \item UART framing from the wire up: the idle-high line, the start bit, the data bits least
+    significant first, optional parity, the stop bit or bits, and how a baud rate maps to a bit
+    period.
+  \item A baud-rate generator, a transmitter and an oversampling receiver in VHDL, each verified by
+    a testbench.
+  \item Register semantics over port semantics: poll-able \code{STATUS} bits and sticky
+    \code{ERROR_FLAGS} bits built from single-cycle pulses; a write-triggered TX push; a read-then-pop
+    RX path, and why a read that pops a FIFO would need the same commit-on-completion, abort-safe
+    discipline as a write.
+  \item The shared UART register protocol both halves implement against, the book's single source
+    of truth, printed in full as Appendix~\ref{proto:ch}.
+  \item A \code{driver::transport::Interface} seam under the C++ driver: \code{driver::uart::Uart}
+    implements \code{driver::uart::Interface} over it, host-tested against a scripted
+    \code{driver::transport::Stub} before any hardware exists.
+  \item Freestanding C++ on the ATmega328P, and bring-up on the bench: two serial links, a level
+    shifter, a bring-up ladder, and an echo application driven end to end.
+\end{itemize}
+
+\section*{What you are assumed to know}
+The book is self-contained apart from the three foundations below, which it does \textbf{not}
+teach again:
+\begin{itemize}
+  \item \textbf{Digital design with VHDL}: \code{entity} and \code{architecture}, processes,
+    synchronizers, state machines, and running a provided self-checking testbench.
+  \item \textbf{Modern embedded C++}: classes, interfaces, and the layered-driver idea.
+  \item \textbf{Embedded C}: the ATmega toolchain (avr-gcc and avrdude) and register-level
+    programming. It is needed only from \chapref{9}, when the driver reaches the real chip.
+\end{itemize}
+
+\subsection*{The provided transport}
+The link between the MCU and the FPGA, a byte-level \code{spi_slave} and a transaction-level
+\code{spi_reg_bridge}, is handed out as testbench-verified VHDL and used as a black box: you write
+the peripheral behind it (the register bank and \code{uart_top}) and the driver above it, not the
+bridge itself. Part~3 of the protocol (\secref{proto:part3}) documents the transport fully, so
+nothing about it is magic, only out of scope. The box stays closed for one more course, since the
+I2C course reuses the same control plane, and is opened in the one after: building
+\code{spi_slave} and \code{spi_reg_bridge} from the wire up, clock-domain crossing and all, is the
+whole subject of \emph{SPI: The MCU-FPGA Transport, from the Wire Up}.
+
+\section*{How the book is organised}
+The book is typeset from a ten-lecture course, and each chapter is one lecture. Its sections are the
+lecture's appendices, in the same order and with the same subsections, so a chapter here and a
+lecture directory in the repository can be read side by side. The lectures come in two parts, and so
+does the book:
+
+\begin{booktable}{@{}p{4.6em}p{4.4em}p{3.2em}L@{}}
+  \thead{Chapter} & \thead{Lecture} & \thead{Side} & \thead{Topic} \\
+  \midrule
+  \multicolumn{4}{@{}l}{\itshape Part~I: The FPGA Peripheral} \\
+  1 & \file{L01} & VHDL & The register package and the peripheral top \\
+  2 & \file{L02} & VHDL & UART framing and the transmitter \\
+  3 & \file{L03} & VHDL & The synchronizer and the receiver \\
+  4 & \file{L04} & VHDL & The FIFO and the receive path \\
+  5 & \file{L05} & VHDL & The register bank \\
+  \midrule
+  \multicolumn{4}{@{}l}{\itshape Part~II: The Driver and Integration} \\
+  6 & \file{L06} & C++ & The driver's contracts \\
+  7 & \file{L07} & C++ & The driver, built \\
+  8 & \file{L08} & C++ & The driver, tested \\
+  9 & \file{L09} & C++ & The real transport, and both toolchains \\
+  10 & \file{L10} & Both & Integration and bring-up \\
+\end{booktable}
+
+The rhythm is five chapters of VHDL, four of C++, and one with both halves on the bench at once.
+Part~I ends with a peripheral that passes its own system testbench in simulation; Part~II crosses
+the wire to the ATmega and ends with both chips talking on the bench.
+
+Every chapter opens with what is in it, works through the material, closes with a review of what
+you should now be able to explain, and ends with its exercises. The appendices hold what every
+chapter leans on. Appendix~\ref{proto:ch} is the UART register protocol, the contract both halves
+are written against: read its Parts~2 and~3 (\secref{proto:part2} and \secref{proto:part3}) before
+\chapref{1}, and Part~1 (\secref{proto:part1}) before \chapref{2}. Appendix~\ref{sol:ch} answers the
+exercises that are not code, and the appendices after it hold the two written papers described
+below.
+
+\section*{What the exercises look like}
+Roughly half the code the course produces lives in its exercises, and a provided self-checking
+testbench or host suite is what says whether it works. The exercises are numbered within each
+chapter, and each is labelled with its kind:
+
+\begin{booktable}{@{}p{7.4em}L@{}}
+  \thead{Kind} & \thead{What it asks of you} \\
+  \midrule
+  \kindtag[fillaccent]{VHDL} & Write a module from its section's specification, and check it with
+    the provided testbench in GHDL. \\
+  \kindtag[fillaccent4]{C++} & Write a header or a class from its specification, and check it with
+    the provided host suite, \code{make test}. \\
+  \kindtag[fillaccent2]{Reasoning} & Answer in words or numbers: explain why, trace what happens, or
+    say what a testbench reports when you break a working design on purpose. \\
+  \kindtag[fillaccent3]{Bench} & Work with the hardware in front of you: the Quartus flow, the
+    wiring, and the bring-up ladder. \\
+\end{booktable}
+
+Most exercises mix the two halves of that table. A VHDL exercise typically starts with the module
+and goes on to parts that ask what it does, what a deliberate mistake in it would do, and why the
+specification is the way it is.
+
+\textbf{The code is not answered in this book.} Each exercise names the testbench or the host suite
+that checks it, and that check is the authority on your module: it is the executable form of the
+specification, and a listing printed here would only be one answer of many. \textbf{Every other
+part is answered}, in Appendix~\ref{sol:ch}: the reasoning, the numbers, the traces, and what a
+testbench reports when you break a working design on purpose, verified by doing exactly that. Try
+each part before you read its answer.
+
+\section*{Two written papers, and what they are not}
+Nothing in the course this book comes from is marked. Assessment is the exercises after every
+chapter, the provided testbench or host suite that grades each one, and the questions in every
+chapter's review.
+
+Appendices~\ref{exam:ch:about} to \ref{ansb:ch:answers} hold two four-hour papers with worked
+solutions, and they check something else: \textbf{what you can reconstruct on paper, with nothing
+in front of you.} Eight questions each, covering all ten chapters, four of VHDL, three of C++ and
+one with both halves on the bench, mixing theory with code you either trace and repair or write
+from scratch, and with no GHDL and no \code{make test} in the room to tell you which it is.
+
+\textbf{They exist purely so that you can test your own skills and knowledge after working through
+the book. They gate nothing, they are not a qualification, and no part of the book requires
+them.}
+
+\textbf{Take one once you have finished the book}, after \chapref{10} and the bring-up ladder. Both
+papers draw on all ten chapters and on both sides of the wire, so sitting one partway through
+examines material you have not read yet.
+
+\section*{Setting up}
+Everything short of the bench runs in a Linux terminal: on Linux itself, or on Windows through WSL.
+The versions below are the floor the build requires; the course is developed against newer ones.
+\begin{itemize}
+  \item \textbf{GHDL} 3.0 or newer, to analyze and simulate the VHDL. Everything is analyzed with
+    \code{--std=93}.
+  \item \textbf{g++} 7 or newer, for the host build and its tests, which are C++17.
+  \item \textbf{avr-gcc} 5 or newer, with \textbf{avr-libc} and \textbf{avrdude}, to build and flash
+    the ATmega328P. The AVR build is deliberately C++14, so that it also builds on the older
+    compiler Microchip Studio ships.
+  \item \textbf{clang-format}, for the style check.
+  \item \textbf{Quartus Prime Lite} 20.1 or newer, which is the first with the Cyclone~V support the
+    DE0-CV needs, to synthesize the peripheral and program the board. It is not needed until
+    \chapref{9}, and it is a multi-gigabyte download, so install it before you get there.
+  \item \textbf{A serial terminal}: \code{picocom}, \code{minicom} or \code{screen} on Linux, PuTTY
+    on Windows, at 115200~8N1.
+  \item \textbf{An editor}; Visual Studio Code is the one the course uses.
+\end{itemize}
+
+\noindent Then clone the companion repository, together with the test framework it keeps as a
+submodule; in a clone made without \code{--recursive}, run \code{git submodule update --init} once:
+
+\begin{shell}
+git clone --recursive https://github.com/qrtech-academy/uart.git
+\end{shell}
+
+\noindent A few commands at its root cover everything the book asks of it:
+
+\begin{shell}
+make build           # Everything: the host C++ and its tests, then the VHDL.
+make build-vhdl      # Analyze every module and run every testbench it can.
+make build-cpp       # Build fw/ and run its host suites.
+make format-check    # Check the formatting of the C++ and the VHDL.
+\end{shell}
+
+\noindent Code arrives chapter by chapter, and both builds are written for that. A testbench whose
+modules you have not written yet is reported as skipped rather than failed, and so is a host suite
+whose headers do not exist yet, so the build stays green while the design is still half-built.
+
+All the VHDL lives in one directory, \file{hw/}: the modules you write, beside the provided
+testbenches that check them, the provided transport and the provided register-map package. Nothing
+is copied between chapters. A testbench is run from there in three GHDL steps, dependencies first;
+for the transmitter of \chapref{2}:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_tx.vhd uart_tx_tb.vhd
+ghdl -e --std=93 uart_tx_tb
+ghdl -r --std=93 uart_tx_tb --assert-level=error
+\end{shell}
+
+\noindent \code{--assert-level=error} makes a failed check stop the simulation with a non-zero exit
+code, rather than printing and running on to a misleading pass. Every testbench binds the module it
+drives \textbf{positionally}, and so does every instantiation inside \code{uart_top}: the contract
+is the order and the types of the ports, exactly as each section's interface table lists them, and
+the names are yours.
+
+The C++ lives in \file{fw/}: headers in \file{include/}, sources in \file{source/}, the host suites
+in \file{test/}, and the ATmega328P port in \file{avr/}, which is cross-compiled and flashed with
+\code{make -C fw/avr flash} rather than built on the host.
+
+For the bench in \chapref{9} and \chapref{10} you need, per bench, a \textbf{Terasic DE0-CV}; an
+\textbf{Arduino Nano} (any 5\,V, 16\,MHz ATmega328P Nano or clone); a \textbf{four-channel
+bidirectional level shifter}, such as a BSS138-based board, for the four SPI lines; a \textbf{3.3\,V
+USB-serial adapter}, such as a CP2102 or an FT232 set to 3.3\,V logic, as the far end of the data
+plane; a breadboard and jumper wires; and the cables and the 12\,V supply for the DE0-CV's on-board
+USB-Blaster. A logic analyzer is recommended but not required: any eight-channel 24\,MHz unit is
+plenty at 1\,MHz \code{SCK} and 115200~baud, one exercise in \chapref{9} uses one and says so, and
+nothing else depends on it.

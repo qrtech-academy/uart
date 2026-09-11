@@ -1,0 +1,68 @@
+% Chapter 1, typeset from lectures/L01: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Register Package and the Peripheral Top}
+\label{c1:ch}
+
+{\large\itshape Top-down: the shell the whole peripheral fills in.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The provided register map, \code{uart_def}}: the seven register indices and the
+    \code{STATUS}, \code{CTRL} and \code{ERROR_FLAGS} bit positions from Part~2 of the protocol
+    (\secref{proto:part2}), mirrored on the C++ side in \file{register_map.hpp}.
+  \item \textbf{\code{uart_top} itself}: the entity as a positional port contract, the provided
+    \code{reset_sync} that asserts asynchronously and releases synchronously, and the provided SPI
+    transport behind it.
+  \item \textbf{Declaring signals as you need them}: each internal signal comes from reading the
+    entity of the block it connects to, so the top grows one block's worth of wiring per chapter
+    rather than starting with a list of names for modules that do not exist yet.
+  \item \textbf{What the shape costs and buys}: what a positional contract cannot catch, and how the
+    top grows across Chapters~2 to~5 until the system testbench can finally run.
+\end{itemize}
+\end{chapterbox}
+
+This chapter starts at the top. Before a single datapath block exists we build the peripheral's
+shell, because the shell is what fixes every block's interface: once \code{uart_top} says how it
+instantiates \code{baud_gen}, the ports \code{baud_gen} must expose are settled, and the rest of
+Part~I is filling that shell in. After the chapter you should be able to read the provided
+register-map package and explain why its bit-\textbf{position} constants must match the protocol;
+build the \code{uart_top} skeleton so that it analyzes cleanly with no datapath blocks present; and
+explain why fixing the top first fixes each block's port contract, and why the system testbench is
+skipped rather than failed until \chapref{5}.
+
+\textbf{Before you start}, you need digital design with VHDL: \code{entity} and
+\code{architecture}, structural instantiation, clocked processes, and analyzing a design with GHDL.
+Read the register map (\secref{proto:part2}) and the SPI transport (\secref{proto:part3}) in the
+protocol appendix; you instantiate the transport, but you do not write it.
+
+Read \secref{c1:sec:uart_def} first, for the register map you will wire against, then
+\secref{c1:sec:uart_top}, which is the reasoning behind \code{uart_top} and the design you build
+from. The exercises in \secref{c1:sec:exercises} carry the build itself, so skim them as well and
+know where their tables are. Do open \file{reset_sync.vhd}, \file{spi_slave.vhd} and
+\file{spi_reg_bridge.vhd} in \file{hw/}: their entities are where the signals you have to declare
+come from, and reading a port list to work out what wiring it implies is the habit this chapter is
+teaching. The exercises tabulate the same ports, but as a check on your reading rather than a
+substitute for it. Finally, read the system testbench \file{uart_top_tb.vhd} to see the contract the
+top must eventually satisfy; you will not run it until \chapref{5}.
+
+By the end of the chapter \code{uart_top} analyzes, though there is no testbench to run yet:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd
+\end{shell}
+
+\noindent Then, from the repository root, run \code{make build-vhdl} and note that
+\code{uart_top_tb} reports \textbf{skipped}: its datapath blocks do not exist yet.
+
+In the exercises, Exercise~\ref{c1:ex:2} is the build, decomposed into five steps: the entity, the
+signals this chapter actually wires, the provided \code{reset_sync}, the two transport blocks, and
+the check. Exercise~\ref{c1:ex:1} is the reading: the register map, positions rather than masks, and
+when a swapped index would surface. Exercise~\ref{c1:ex:3} is the reasoning, about positional
+binding, the reset synchronizer, and a register bus that waits four chapters for its bank.
+
+\input{chapters/01/uart_def}
+\input{chapters/01/uart_top}
+\input{chapters/01/summary}
+\input{chapters/01/exercises}

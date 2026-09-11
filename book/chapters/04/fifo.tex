@@ -1,0 +1,96 @@
+% Section 4.1, from lectures/L04/appendix/a_fifo.md.
+
+\section{Designing \code{fifo.vhd}}
+\label{c4:sec:fifo}\label{c4:app:a}
+The datapath produces and consumes bytes at different rates:
+\begin{itemize}
+  \item Software writes a byte to send whenever it likes.
+  \item The transmitter sends one every ten bit-times.
+  \item The receiver delivers a byte every frame.
+  \item Software reads it whenever it gets round to it.
+\end{itemize}
+
+A \textbf{FIFO} (a first-in, first-out queue) absorbs that mismatch: bytes go in one end and come
+out the other in the same order, and each side can run without waiting for the other, up to the
+depth of the queue.
+
+The register bank (\secref{c5:app:a}) needs two of these, one for each direction, so \code{fifo} is
+written once as a generic module and instantiated twice.
+
+\subsection{Interface}
+\label{c4:sec:fifo_interface}
+
+\bookfigure{fifo}{Module \code{fifo}}{c4:fig:fifo}
+
+\begin{booktable}{@{}p{6.4em}p{3.2em}p{17.6em}L@{}}
+  \thead{Port / generic} & \thead{Dir} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \code{WIDTH} & generic & \code{natural range 1 to 64 := 8} & Bits per entry. \\
+  \code{DEPTH} & generic & \code{natural range 1 to 256 := 8} & Number of entries. \\
+  \code{clock} & in & \code{std_logic} & 50\,MHz system clock. \\
+  \code{reset_s2_n} & in & \code{std_logic} & Active-low synchronized reset. \\
+  \code{wdata} & in & \code{std_logic_vector(WIDTH-1 downto 0)} & The entry to push. \\
+  \code{wr} & in & \code{std_logic} & \code{'1'} to push \code{wdata} this cycle. \\
+  \code{rd} & in & \code{std_logic} & \code{'1'} to pop the front entry this cycle. \\
+  \code{rdata} & out & \code{std_logic_vector(WIDTH-1 downto 0)} & The entry at the front
+    (combinational). \\
+  \code{empty} & out & \code{std_logic} & \code{'1'} if the FIFO is empty. \\
+  \code{full} & out & \code{std_logic} & \code{'1'} if the FIFO is full. \\
+\end{booktable}
+
+\code{fifo_tb} binds the ports positionally and drives the generic map too, instantiating a depth-4
+FIFO. \code{rdata} shows the front entry continuously, without a \code{rd}; \code{rd} is what
+\emph{discards} it and moves to the next. That split, look then advance, is exactly what the RX path
+in \chapref{5} needs.
+
+\subsection{Behaviour}
+\label{c4:sec:fifo_behaviour}
+A ring buffer: an array of \code{DEPTH} entries, a write pointer (\code{head}), a read pointer
+(\code{tail}), and a count. Each pointer wraps around from \code{DEPTH-1} back to 0.
+
+On reset (\code{reset_s2_n} low), \code{head}, \code{tail} and \code{count} all go to 0, so the FIFO
+comes out of reset empty and not full; as everywhere else in this peripheral the reset is asserted
+asynchronously and tested ahead of \code{rising_edge(clock)}. The entries themselves need no
+clearing, since with \code{count = 0} nothing in the array is reachable and the first write lands on
+entry 0 anyway. What does matter is that the two pointers start \emph{equal}, not merely at some
+known value: \code{empty} and \code{full} are read off \code{count}, so a \code{head} and
+\code{tail} that disagreed out of reset would keep the count honest while handing back a stale entry
+instead of the byte just pushed. \code{rdata} still shows an entry while the FIFO is empty (entry 0
+out of reset, a stale one after a drain), whatever that entry happens to hold, which is one more
+reason the caller watches \code{empty} rather than trusting \code{rdata}.
+
+On each rising edge, while not in reset, a \textbf{write} happens only if \code{wr = '1'} and the
+FIFO is not full, storing \code{wdata} at \code{head} and advancing \code{head}; a \textbf{read}
+happens only if \code{rd = '1'} and the FIFO is not empty, advancing \code{tail}. The count follows
+from the pair: it rises by one on a write without a read, falls by one on a read without a write,
+and is unchanged when both or neither happen.
+
+\code{full} is \code{count = DEPTH}, \code{empty} is \code{count = 0}, and \code{rdata} is
+combinationally the entry at \code{tail}. Guarding writes on \code{not full} and reads on
+\code{not empty} means the pointers can never cross; a write to a full FIFO and a read from an empty
+one are simply dropped, which is why the caller must watch the flags.
+
+\subsection{What the testbench pins down}
+\label{c4:sec:fifo_tb}
+\code{fifo_tb} uses a depth-4 instance. It checks \code{empty} after reset and \code{full} after
+four pushes, then pushes a fifth entry while full and confirms it is dropped rather than stored over
+an existing one, and finally drains the FIFO and checks the four bytes come back in the order they
+went in, leaving it \code{empty} again. A last case raises \code{wr} and \code{rd} on the same edge
+with two entries queued: one entry in and one out, so the depth must not move, and the byte pushed
+alongside the pop must still be there after the next one. That is the case where a count adjusted
+in two independent branches quietly loses an entry.
+
+That is the whole contract: order preserved, and the flags honest at both ends.
+
+\subsection{Where it fits}
+\label{c4:sec:fifo_fits}
+The register bank (\secref{c5:app:a}) instantiates two \code{fifo}s, both \code{WIDTH = 8, DEPTH =
+8}: a TX FIFO that a \code{TX_DATA} register write pushes and the transmitter drains, and an RX FIFO
+that the receiver pushes and an \code{RX_DATA} read plus an \code{RX_POP} write drains. The FIFO's
+\code{full} and \code{empty} flags become the \code{STATUS} register's TX-ready and RX-valid bits.
+
+\subsection{What's ahead}
+The exercises in \secref{c4:sec:exercises} build \code{fifo} and run its testbench, put the receive
+path of \chapref{3} into \code{uart_top}, and work out why overrun is not the receiver's question to
+answer. Then \secref{c5:app:a} builds \code{uart_regs}, the register bank, which wraps two of these
+FIFOs and the datapath in the register map that software drives.

@@ -1,0 +1,126 @@
+% Section 9.4, from lectures/L09/appendix/c_exercises.md.
+
+\section{Exercises}
+\label{c9:sec:exercises}\label{c9:app:c}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c9:ex:1} reinforces \secref{c9:sec:avr_transport};
+Exercises~\ref{c9:ex:2}, \ref{c9:ex:3} and~\ref{c9:ex:4} reinforce \secref{c9:sec:freestanding}.
+\code{AvrSpi} joins the other transport code in \file{driver/transport/}; the bring-up \code{main}
+and the logging go in the AVR-only tree \file{fw/avr/}, next to the provided \file{env.cpp} and
+avr-gcc Makefile. The runtime stubs, the Makefile and the host register mock are all provided.
+
+\code{AvrSpi} reaches the SPI registers through the platform header
+(\file{arch/avr/hw_platform.hpp}, which forwards to \code{<avr/io.h>} on the target and to the mock
+under \code{-DHOST_TEST}), so the same source compiles for the target (real registers) and for the
+host suite (the mocked register file). Because it touches AVR registers, the host \code{make build}
+skips \file{avr_spi.cpp}; the AVR build compiles it for the target, and the host test suite compiles
+it against the mock. Keep the AVR-portable style of \chapref{6}: \code{<stdint.h>} and bare types,
+nested namespace blocks, no \code{[[nodiscard]]}.
+
+\textbf{How to check your work.} The provided host suite \file{fw/test/transport/avr_spi_test.cpp},
+run by \code{make test}, checks \code{AvrSpi} over the mocked register file; the rest is checked on
+the hardware. The answers to every part that is not code are in \secref{sol:c9}. Try each part
+before you read its answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{AvrSpi}}{C++}
+\label{c9:ex:1}
+
+\xpart{a} In \file{include/driver/transport/avr_spi.hpp} (the declaration) and
+\file{source/driver/transport/avr_spi.cpp} (the definitions), create a new class \code{AvrSpi}, a
+second implementation of \code{driver::transport::Interface} (the first was the \code{Stub} of
+\chapref{8}), beside \file{interface.hpp} and \file{stub.hpp}. Reach the registers through
+\file{arch/avr/hw_platform.hpp}.
+
+Configure the SPI master once, from the bit table in \secref{c9:sec:spi_registers}: set the
+\code{DDRB} directions, with \code{SCK}, \code{MOSI} and \code{SS} as outputs and \code{MISO} as an
+input; idle the chip select (\code{SS}) high by writing to \code{PORTB}; and set \code{SPCR} for
+enable, master, mode 0, most significant bit first and f\textsubscript{osc}/16.
+
+Then give the destructor the mirror job: clear exactly the bits the constructor set ---
+\code{SCK}, \code{MOSI} and \code{SS} in \code{DDRB}, \code{SS} in \code{PORTB}, and all of
+\code{SPCR} --- so that an \code{AvrSpi} leaves the registers as it found them, the ATmega's reset
+state (\secref{c9:sec:releasing}). Leave \code{MISO} alone; the constructor never touched it.
+
+Do not restate the protocol; the driver above already owns it.
+
+\xpart{b} Implement the three seam methods: \code{begin()} drives \code{SS} low, \code{end()} drives
+it high, and \code{transfer(byte)} writes \code{SPDR}, spins until \code{SPIF} is set, then returns
+\code{SPDR}. Explain, in one sentence, why the spin cannot be skipped.
+
+\xpart{c} \code{SS} (PB2) is configured as an output even though the transport drives the chip
+select itself. What does the SPI peripheral do if \code{SS} is left an input and something pulls it
+low mid-transaction, and which \code{SPCR} bit changes?
+
+\xpart{d} A colleague writes \code{return SPDR;} immediately after \code{SPDR = byte;}, with no poll.
+What byte comes back, and why? Tie your answer to the transfer waveform: how many \code{SCK} periods
+must pass first?
+
+\xpart{e} The check: run the provided host suite (\code{make test}), which drives \code{AvrSpi} over
+the mocked register file and asserts the configuration bits, the chip-select framing, the
+\code{SPIF} poll, and the returned byte. Confirm that the driver suite of \chapref{8} still passes
+unchanged, since nothing above the seam moved. The transport itself is finally proven on the bench
+in \chapref{10}.
+
+% ------------------------------------------------------------------------------------------
+\exercise{The freestanding bring-up \code{main}}{C++}
+\label{c9:ex:2}
+
+\xpart{a} In \file{fw/avr/}, write a small \code{main()} that constructs a \code{Uart} over an
+\code{AvrSpi}, \code{configure()}s it for 115200~8N1 (\code{BAUD_DIV} = 27), sends a byte with
+\code{writeBlocking}, and reads one back. Cross-compile and flash it:
+
+\begin{shell}
+make -C fw/avr flash
+\end{shell}
+
+\xpart{b} The host demo (\file{source/main.cpp}) compiles unchanged in this freestanding build.
+Say why, then name the idioms of ordinary host C++ that would \textbf{not} compile here, and what
+replaces each on the AVR. (Consider \code{<cstdint>}, the heap, exceptions, RTTI, and iostreams.)
+
+\xpart{c} Delete \file{env.cpp} from the link and rebuild. Which symbol does the linker report as
+undefined, which C++ construct in your code emitted the reference to it, and why does the host build
+not need the file?
+
+% ------------------------------------------------------------------------------------------
+\exercise{Logging and timing}{C++}
+\label{c9:ex:3}
+
+\xpart{a} Add debug logging over the ATmega328P's \textbf{own} hardware USART (not the FPGA
+peripheral): set \code{UBRR0} from \code{F_CPU} and the log baud, enable the transmitter in
+\code{UCSR0B}, then send each byte by waiting on \code{UCSR0A & (1 << UDRE0)} and writing
+\code{UDR0}. Log one line per register transaction, so that you can watch the driver work from a PC
+terminal.
+
+\xpart{b} \emph{(Needs a logic analyzer; do the arithmetic either way and skip the capture if you
+have none.)} Put a logic analyzer on the four SPI lines and capture one \code{readReg()}. A register
+read is a five-byte transaction at 1\,MHz \code{SCK}; work out how many \code{SCK} cycles that is
+and how long it should take, then compare against what you measure. Where does the extra time
+between bytes come from?
+
+\xpart{c} The SPI transport needs no \code{F_CPU}, but this logging does. Explain the difference:
+what sets the SPI \code{SCK} rate, and what sets the USART baud rate?
+
+% ------------------------------------------------------------------------------------------
+\exercise{Your own \code{uart_top} on the board}{Bench}
+\label{c9:ex:4}
+The Quartus flow is where you synthesize your own design, so that the FPGA is already carrying your
+code when you reach the bench rather than on the day.
+
+\xpart{a} Open the provided Quartus project, add your own \file{hw/*.vhd} alongside the provided
+\file{uart_board.vhd} wrapper, and compile. Record two numbers from the reports: how much of the
+Cyclone~V the design uses, and the \textbf{worst-case slack} on the 50\,MHz clock. Did it meet
+timing, and how do you know from the report rather than from the design working?
+
+\xpart{b} Program the DE0-CV over USB-Blaster. Then build the wrapper once more with its \code{rx}
+pin wired straight to its \code{tx} pin, bypassing \code{uart_top}, program that, and open a terminal
+at 115200~8N1 on the USB-serial adapter: typing a character should echo it back. This is the only
+loopback the board can run on its own. Jumpering the peripheral's own \code{tx} to its \code{rx}
+shows nothing yet, because \code{uart_top} transmits only what an SPI master writes to
+\code{TX_DATA}; \code{uart_top_tb} could loop a byte through it only because the testbench was that
+master, and on the bench the Nano takes that role in \chapref{10}.
+
+\xpart{c} The pin loopback in b) proves rather less than the system testbench did, and rather more.
+Name one thing each establishes that the other cannot.

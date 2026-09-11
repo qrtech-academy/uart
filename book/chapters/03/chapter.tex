@@ -1,0 +1,78 @@
+% Chapter 3, typeset from lectures/L03: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Synchronizer and the Receiver}
+\label{c3:ch}
+
+{\large\itshape The hard direction: recovering bytes from an asynchronous line.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The synchronizer}: before any receive logic can run, the asynchronous \code{rx}
+    input has to pass through a two-flop synchronizer, \code{sync}, which \code{uart_top} will
+    instantiate on the pin so that the crossing happens in the module that owns it. This is the
+    metastability lesson from digital design with VHDL, reused here on a genuinely asynchronous
+    input.
+  \item \textbf{Oversampling}: the receiver watches \code{rx} at \code{16 x baud} rather than
+    clocking on it, detecting the start-bit edge and then sampling each bit at its midpoint, tick 8
+    of 16.
+  \item \textbf{Leaving idle on an edge, not a level}: one flip-flop of history for \code{rx_s2},
+    and why it is the difference between a receiver that works on clean data and one that survives
+    a cable being unplugged.
+  \item \textbf{The error family}: what framing, parity and overrun each mean, and when each can be
+    detected. The receiver you build here surfaces a framing error as a one-cycle pulse for the
+    register bank to latch in \chapref{5}; parity is left as an extension, and overrun is not
+    something the receiver can judge at all, so it belongs to the closing discussion of
+    \chapref{4} and to \chapref{5}.
+  \item \textbf{\code{sync.vhd} and \code{uart_rx.vhd}}, each verified against its provided
+    testbench.
+\end{itemize}
+\end{chapterbox}
+
+Receiving is the hard direction, and this chapter is about why. The buffer the register bank
+needs, and the two instantiations that put this chapter's modules into \code{uart_top}, belong to
+\chapref{4}; this chapter is the receiver and nothing else. After it you should be able to explain
+why an asynchronous input sampled directly can violate setup and hold, and place a two-flop
+synchronizer correctly; explain why sampling at mid-bit, tick 8 of 16, maximizes the margin
+against a baud mismatch, and implement start-bit detection along with mid-bit sampling; explain why
+the receiver leaves idle on a falling edge rather than a low level, and what a break does to a
+receiver that tests the level instead; and detect a framing error, emitting it as a clean
+single-cycle pulse alongside \code{valid}, and explain why parity is a natural extension of the same
+sampling loop while overrun is not the receiver's question to answer at all.
+
+\textbf{Before you start}, you need \chapref{1}, which produced the \code{uart_top} skeleton the
+receive path is instantiated into in \chapref{4}, and \chapref{2}, which produced the baud generator
+and the frame format; the receiver reuses the same \code{16 x baud} tick rather than generating its
+own. From digital design with VHDL the chapter assumes metastability and the two-flop synchronizer.
+Read the notes on the three error flags in the register semantics (\secref{proto:semantics}), since
+this chapter produces the pulses that \chapref{5} latches.
+
+Read \secref{c3:sec:sync} for \code{sync} and \secref{c3:sec:uart_rx} for \code{uart_rx}; these
+are the specifications you build the two modules from. Then read the provided testbenches,
+\file{hw/sync_tb.vhd} and \file{hw/uart_rx_tb.vhd}. The receiver's testbench has three cases, and
+each case comment names what it expects: a clean frame that must produce exactly one \code{valid}
+byte and no error; a frame with a low stop bit that must raise \code{frame_err} and produce no byte
+at all; and a break, the line held low for longer than a frame, that must produce framing errors and
+no byte at all, on the way in or on recovery.
+
+Each module is run against its testbench as it lands:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd sync.vhd uart_rx.vhd sync_tb.vhd uart_rx_tb.vhd
+ghdl -e --std=93 uart_rx_tb && ghdl -r --std=93 uart_rx_tb --assert-level=error
+\end{shell}
+
+\noindent Neither module is instantiated yet. \code{uart_top} gains both in \chapref{4}, together
+with the FIFO the register bank will own, which is why this chapter can stay on the one hard idea:
+detecting the start edge and sampling at tick 8 of 16, and the break case, where a level test
+instead of an edge test delivers a byte assembled out of nothing.
+
+In the exercises in \secref{c3:sec:exercises} you build \code{sync} and \code{uart_rx}
+(Exercises~\ref{c3:ex:1} and~\ref{c3:ex:2}), run both testbenches, and reason about sampling margin,
+glitch rejection, and the bit order the shift produces.
+
+\input{chapters/03/sync}
+\input{chapters/03/uart_rx}
+\input{chapters/03/summary}
+\input{chapters/03/exercises}

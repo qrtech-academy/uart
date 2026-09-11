@@ -1,0 +1,93 @@
+% Section 8.1, from lectures/L08/appendix/a_testing.md.
+
+\section{Testing the Driver on the Host}
+\label{c8:sec:testing}\label{c8:app:a}
+\chapref{7} built the \code{Uart}: the private register core and every public method of the
+interface of \chapref{6}. Nothing has run it. This chapter supplies the missing half --- a transport
+that can be scripted, and the provided host suite that drives the real driver over it --- so that a
+byte-order or sequencing bug is caught on your machine in milliseconds, long before a logic analyzer
+is involved.
+
+The stub is written by you; the host suite is provided and is the check, exactly as the
+\file{*_tb.vhd} testbenches were on the VHDL side. The exercises give the precise build
+instructions, and this section explains the ideas they rest on.
+
+\subsection{The scripted stub}
+\label{c8:sec:scripted_stub}
+To test the driver with no hardware, you build a stub that stands in for the
+\code{driver::transport::Interface} seam. It records every byte the driver sends and plays back bytes
+you have queued for it to return, so a test drives the \emph{real} driver and then asserts the exact
+transactions it produced. This is the C++ counterpart of a self-checking testbench: the stub is the
+wire, scripted.
+
+The stub is a concrete \code{driver::transport::Interface}. The class is named
+\code{driver::transport::Stub}, it publicly inherits the interface so that a \code{Uart} accepts it
+wherever the seam is expected, and it overrides the three seam methods, \code{begin()},
+\code{transfer()} and \code{end()}. It is injected into the \code{Uart} through the constructor,
+exactly like the real transport of \chapref{9}. It lives in \file{include/driver/transport/stub.hpp},
+beside the interface it implements, so that the host demo in \file{source/main.cpp} can drive the
+driver with no hardware too.
+
+On the \code{MOSI} side it records what the driver sends. Every byte passed to \code{transfer()} is
+appended to a log the test can read back, and that log is the exact sequence of bytes the driver put
+on the wire, so a test asserts against it to check the five-byte transaction, the command byte and
+the byte order. Counting \code{begin()} and \code{end()} calls is part of the contract the provided suite asserts
+on: it checks \code{beginCalls()} in eight of its cases, which confirms each transaction was framed
+exactly once, and \code{endCalls()} in two, which confirms the two stay balanced.
+
+On the \code{MISO} side it plays back what the driver reads. The test loads a queue of bytes before
+the driver runs, each \code{transfer()} call returns the next byte from that queue, and once the
+queue is empty \code{transfer()} returns \code{0x00}. That is how a test makes \code{readReg} observe
+a chosen register value: queue the four bytes, most significant first, that the peripheral would
+have shifted out. The suite reaches for that often enough that the stub owes it a word-at-a-time
+helper, which queues a 32-bit register value most significant byte first, and a reset that clears
+the queued script between phases.
+
+The result is a self-checking, hardware-free test. It constructs a \code{Stub}, constructs a
+\code{Uart} over it, and scripts the responses; it calls the real driver methods under test; and it
+then asserts on the stub's recorded bytes and on the driver's return values. No SPI, no AVR and no
+bench are involved, and the whole driver is exercised on the host.
+
+\subsection{What the host tests pin down}
+\label{c8:sec:host_tests}
+Once the driver and stub exist, the provided host suite checks the behaviour that matters:
+\begin{itemize}
+  \item \textbf{The transactions themselves.} A register read and a register write must produce the
+    exact five-byte sequences, with the right command byte and four data bytes \textbf{most
+    significant first}. This is the byte-order check.
+  \item \textbf{Configuring} must write the baud divider first and then enable the peripheral.
+  \item \textbf{\code{write()}} must read \code{STATUS} and write \code{TX_DATA} only when there is
+    room, writing nothing when there is not.
+  \item \textbf{\code{read()}, on valid data}, must read \code{STATUS}, then \code{RX_DATA}, then
+    write \code{RX_POP}, in that order.
+  \item \textbf{\code{read()}, on no data}, must report failure and issue \textbf{no}
+    \code{RX_POP}.
+  \item \textbf{The error flags} must read back, and clearing must write zero to them.
+\end{itemize}
+The ``no pop on empty'' and ``bytes most significant first'' checks are the two that catch the
+mistakes which would otherwise only surface on the bench.
+
+The suite is all-or-nothing by design: it is guarded on all four headers existing, so it reports
+nothing to do until \file{register_map.hpp}, \file{uart.hpp}, \file{stub.hpp} and \file{blocking.hpp}
+are all present. The first four cases check the \emph{stub}, before any driver case runs, and they
+are the ones to get green first. Every \code{Uart} case reads what the stub was scripted to reply, so
+a stub bug surfaces as a driver failure: queue a register value least significant first and the
+suite reports \code{Uart.WriteWhenReadyPushesTxData} red, pointing at the \code{readReg()} of
+\chapref{7}, which is correct and unhelpful.
+
+\subsection{Blocking on top, not inside}
+\label{c8:sec:blocking}
+\code{write()} and \code{read()} are non-blocking because that is what makes them deterministic to
+test: each one reports whether it did anything, and a test can drive both outcomes from the stub's
+script. The convenience of ``send this byte, I'll wait'' is real, though, so it is built \emph{over}
+the interface as two free functions that spin on the non-blocking core until it succeeds.
+
+Building them that way rather than into the driver keeps the core deterministic and keeps the
+spinning where a caller opts into it. They take \code{Interface&} rather than \code{Uart&}, so they
+work over any implementation --- including the \code{driver::uart::Stub} of \chapref{6}, which is
+what lets the \code{app::EchoNode} of \chapref{10} be tested with no driver at all underneath it.
+
+\subsection{What's ahead}
+The exercises in \secref{c8:sec:exercises} build the scripted \code{Stub}, get the host suite green,
+add the blocking helpers, and run the provided demo. \chapref{9} then replaces the stub with
+\code{AvrSpi} over the ATmega328P's real SPI, and nothing above the seam changes.

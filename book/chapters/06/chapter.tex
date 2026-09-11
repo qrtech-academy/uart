@@ -1,0 +1,60 @@
+% Chapter 6, typeset from lectures/L06: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Driver's Contracts}
+\label{c6:ch}
+
+{\large\itshape Crossing to C++: the three abstractions the driver rests on, before any
+algorithm.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The register map in C++}: the seven register indices and the \code{STATUS},
+    \code{CTRL} and \code{ERROR_FLAGS} bits from Part~2 of the protocol (\secref{proto:part2}),
+    transcribed as named constants the whole driver shares with \file{uart_def.vhd}.
+  \item \textbf{The transport interface}, \code{driver::transport::Interface}: a byte-level SPI seam
+    of \code{begin}, \code{transfer} and \code{end}, and why putting that seam at the byte level is
+    exactly what makes the driver host-testable.
+  \item \textbf{The driver interface}, \code{driver::uart::Interface}: the abstract, non-blocking API
+    the application codes against, being configure, write, read, poll status and clear errors.
+  \item \textbf{A first implementation of it}, \code{driver::uart::Stub}: a test double that plays
+    back scripted bytes and records what was written. It needs nothing but the interface, so it can
+    be written the moment the interface exists, and it keeps this chapter from being declarations
+    only.
+\end{itemize}
+\end{chapterbox}
+
+This chapter crosses from VHDL to C++, and it stays entirely with \emph{shapes}: the driver stack
+top to bottom, and the three abstractions it rests on, before any algorithm is written. After it you
+should be able to transcribe the register map into \file{register_map.hpp} as \code{constexpr}
+constants, and explain why a value there that disagrees with the hardware is a bug you would only
+find on the bench; design the transport interface and say what it buys, the same driver over a stub
+in \chapref{8} and over the real AVR SPI in \chapref{9}, with nothing above the seam changing; turn
+the register-level flow into a clean, abstract \code{Interface}, and explain why non-blocking
+\code{write} and \code{read} map directly onto the FIFO-backed \code{STATUS} bits of \chapref{5};
+and implement that interface once, as a \code{Stub} backed by two linear buffers, and explain what a
+test double has to be faithful about and what it may ignore.
+
+\textbf{Before you start}, you need abstract classes, pure virtual methods and dependency injection
+from modern embedded C++. Embedded software testing is recommended but not required, for why a seam
+exists and what a stub sits behind. Read Parts~2 and~3 of the protocol (\secref{proto:part2} and
+\secref{proto:part3}).
+
+Read \secref{c6:sec:driver_stack}, which lays out the full driver stack and specifies the three
+contracts you build here: the register map, the byte-transport seam, and the interface. They are
+designed top-down, in the order the design demands rather than the order the files are written: the
+interface the application wants, the seam the driver will run over, and the register map both sides
+of the wire share. These are declarations only; the driver that implements them arrives in
+\chapref{7}, and the tests that check it in \chapref{8}. The first \code{make test} of the C++ half
+therefore comes in \chapref{8}, once both the \code{Uart} and the stub that scripts it exist.
+
+In the exercises (\secref{c6:sec:exercises}) you build \file{driver/uart/register_map.hpp},
+\file{driver/transport/interface.hpp} and \file{driver/uart/interface.hpp}, keeping the names the
+tests of \chapref{8} will bind to (Exercises~\ref{c6:ex:1.1} to~\ref{c6:ex:3.1}), then write
+\file{driver/uart/stub.hpp} against the interface you just declared (Exercise~\ref{c6:ex:4.1}). The
+stub is the first concrete class of the C++ half and about as long as the three headers together,
+but it is buffer bookkeeping rather than design, and by then you have the interface it must satisfy.
+
+\input{chapters/06/driver_stack}
+\input{chapters/06/summary}
+\input{chapters/06/exercises}

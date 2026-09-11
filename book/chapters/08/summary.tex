@@ -1,0 +1,40 @@
+% Section 8.2, from lectures/L08/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c8:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Build a scripted stub} and use it to assert the exact transactions the driver
+    produces, including the byte order and the ``no \code{RX_POP} on empty'' behaviour.
+  \item \textbf{Explain what a test double has to be faithful about} and what it may ignore, and why
+    the stub's two buffers are linear logs rather than FIFOs.
+  \item \textbf{Read a red test and place the bug}, distinguishing a fault in the stub's script from
+    a fault in the driver it is scripting.
+  \item \textbf{Build blocking helpers over a non-blocking core}, and explain why the spinning lives
+    above the driver rather than inside it.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Why is the driver tested against a scripted \code{driver::transport::Stub} rather than the
+    real SPI at this stage, and what class of bug does that let you find first?
+  \item \code{injectRxWord} queues its four bytes least significant first by mistake. Which cases go
+    red, and why does the failure point at \code{readReg()} rather than at the stub?
+  \item The suite counts \code{begin()} calls in eight cases, and \code{end()} calls in two of
+    them. What would be wrong
+    with a driver that passed every byte-sequence assertion but failed those counters?
+  \item Why do \code{writeBlocking} and \code{readBlocking} take \code{Interface&} rather than
+    \code{Uart&}, and which class of \chapref{6} does that choice make usable in \chapref{10}?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+In \chapref{9} the bottom layer becomes real: the AVR's own \code{SPCR}, \code{SPSR} and
+\code{SPDR}, \code{AvrSpi} implementing \code{driver::transport::Interface}, and what a freestanding
+target removes. The driver, the interface, the register map and this suite all run unchanged.

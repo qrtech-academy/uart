@@ -1,0 +1,55 @@
+# Set pipeline name.
+name: Book
+
+# Build and publish the book whenever a tag named book-v* is pushed, e.g. book-v1.
+on:
+  push:
+    tags: ["book-v*"]
+
+# Creating a release needs write access to the repository's contents.
+permissions:
+  contents: write
+
+# Fail on the first error in a multi-line run block, and on a failure inside a pipeline.
+defaults:
+  run:
+    shell: bash
+
+# Define pipeline jobs.
+jobs:
+  # Build the PDF with the tag on its title page, and attach it to a release named after the tag.
+  release:
+    name: Build and release the book
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # The figures are drawn by diagrams/, with the same pinned packages `make diagrams` uses.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: diagrams/requirements.txt
+
+      - name: Install the pinned drawing dependencies
+        run: pip install -r diagrams/requirements.txt
+
+      - name: Install LuaLaTeX and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make texlive-luatex texlive-latex-extra fonts-texgyre \
+                                  fonts-texgyre-math fonts-dejavu-core
+
+      - name: Build
+        run: make -C book VERSION="${{ github.ref_name }}" PYTHON=python
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" book/uart.pdf \
+            --title "UART: Hardware, Driver & Integration, ${{ github.ref_name }}" \
+            --notes "The course typeset as a book, built from ${{ github.sha }}."

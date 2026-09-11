@@ -1,0 +1,132 @@
+% Section B.5: the answers to the parts of lectures/L05/appendix/b_exercises.md that are not code.
+% Every testbench message quoted was produced by a design built to Chapters 1 to 5 and broken in
+% exactly the way the part describes.
+
+\section{Chapter 5: The Register Bank}
+\label{sol:c5}
+The a) parts of both exercises are code: \code{uart_regs}, checked by \code{uart_regs_tb}, and the
+completed \code{uart_top}, checked by \code{uart_top_tb}.
+
+\solution{c5:ex:1}{\code{uart_regs}}
+\ans{b} Advancing the FIFO ``whenever that index is read'' means decoding a pop from the address
+alone, since the bus has no read strobe: \code{rx_pop} is high whenever \code{reg_idx} is
+\code{REG_RX_DATA}. The run then fails one check earlier than you might expect, in Case~5 rather
+than Case~6:
+
+\begin{console}
+uart_regs_tb: RX_DATA mismatch, got 0x00!
+\end{console}
+
+\noindent \code{bus_set_addr} puts the address on the bus, waits for a clock edge and then samples.
+That edge pops the FIFO, so by the time the bench reads \code{RX_DATA} the byte it pushed is gone
+and the front shows an entry that was never written. The ``a bare \code{RX_DATA} read must not pop''
+check in Case~6 would fail too, but the run never gets there.
+
+The system testbench, by contrast, \emph{passes} with the change. The bridge latches
+\code{reg_rdata} on the same edge as the first pop, so it captures the byte before it disappears,
+and \code{uart_top_tb} reads \code{RX_DATA} once and never looks again. What it does not see is the
+rest: the bridge holds \code{reg_addr} at the last command's index until the next command, so the
+pop repeats on every clock and an eight-entry FIFO is empty 160\,ns after the command byte.
+
+That is the general problem, and the abort rule makes it plain. A read with a side effect has to
+decide \emph{when} the side effect happens. If the pop happens when the value is latched, after the
+command byte, then an aborted read, \code{SS} rising before the fifth byte, has discarded a byte the
+master never received, and the protocol promises that an abort has no side effects. If the pop waits
+for the fifth byte, it is a commit on completion, the discipline a write has; but the bridge commits
+only writes, with \code{reg_write}, and has no ``read completed'' strobe to give the bank, so both
+the bridge and the bank would have to change. The pure read plus a separate \code{RX_POP} needs
+none of that: reading has no side effect to abort, and the pop is a write, which the bridge already
+commits exactly once, on completion, and never on an abort.
+
+\ans{c} \code{STATUS} bit 0, TX ready, is \code{not tx_full_s}, from the TX FIFO. Bit 1, RX valid, is
+\code{not rx_empty_s}, from the RX FIFO. Bit 2, Error, is the OR of the three \code{err_flags}
+latches. Bit 3, TX idle, is \code{tx_empty_s and not tx_busy}, from the TX FIFO and the
+transmitter. Bits 31 to 4 are zero.
+
+None of them can be a stored register the datapath writes, because each is a copy of state that
+already lives somewhere else: the FIFOs' counts, the error latches, the transmitter's state machine.
+A stored copy would have to be updated by every event that changes its source, on the same edge,
+by logic that duplicates the FIFO's own; any cycle in which it lagged would be a cycle in which the
+driver could read ``TX ready'' for a FIFO that had just filled and push a byte into it that is then
+dropped. Computed combinationally, each bit is correct by construction, and the bridge's latch-once
+read takes a coherent snapshot of all four at once.
+
+\ans{d} It relies on the bridge raising \code{reg_write} only for a \textbf{completed, non-aborted
+write}: one clock, once, when the fifth byte arrives with \code{SS} still low, with \code{reg_addr}
+and \code{reg_wdata} already holding the transaction's index and all four data bytes. The provided
+\code{spi_reg_bridge} does exactly that: it counts the bytes, resets the count whenever \code{SS}
+rises, and asserts \code{reg_write} only on byte four of a write command, which
+\code{spi_reg_bridge_tb} checks, abort included.
+
+If a half-finished transaction could reach the bank as a \code{reg_write}, its data word would be
+partly stale, the bytes left over from an earlier transaction, and the bank would act on it: a
+\code{BAUD_DIV} of garbage, and the line at a rate nobody chose; a \code{TX_DATA} push of a byte the
+master never finished sending, which then goes out on \code{tx}; an \code{RX_POP} that discards an
+unread byte; an \code{ERROR_FLAGS} write that clears an error nobody saw. Every one of those is a
+single-cycle action with nothing to undo it, which is why the guarantee has to hold before the
+strobe reaches the bank.
+
+\solution{c5:ex:2}{\code{uart_top}}
+\ans{b} A release that lands near a clock edge would leave some flip-flops out of reset on that edge
+and others on the next, with any of them possibly metastable, and the peripheral would start
+half-reset. Here that could mean a FIFO whose \code{head} leaves reset a cycle before its
+\code{count}, a receiver whose \code{rx_prev} leaves reset after its state and sees a falling edge
+that never happened, or the transmitter's state machine out of step with its \code{tx} register:
+states the logic was never designed to leave. Asserting asynchronously is nonetheless right, because
+entering reset has no such hazard. Every flop goes to its reset value immediately, together, and
+without needing a clock, so the design is safe the instant \code{reset_n} falls, even if the clock
+has stopped, and \code{tx} goes to its idle high at once. Only the release has to line up with the
+clock, and \code{reset_sync} lines it up.
+
+\ans{c} The port that settles it is \code{sync}'s \code{reset_s2_n} input. To make
+\code{reset_s2_n} with a \code{sync} instance, you would have to connect the instance's own output,
+\code{reset_s2_n}, to its own reset input: the synchronizer would be reset by the signal it has not
+produced yet, which is undefined until it has been clocked, and it would never assert while it was
+holding itself in reset. The raw \code{reset_n} would have to go in through \code{async_in}, so even
+the assertion would wait two clock edges and would never come at all without a clock. The circle
+cannot be closed; \code{reset_sync} breaks it by taking the raw reset on its flops' asynchronous
+clear.
+
+\ans{d} \code{tx_load} is \code{(not tx_empty) and (not tx_busy)}, and \code{tx_pop} is the same
+signal.
+\begin{itemize}
+  \item \textbf{Never zero.} Whenever a byte is queued and the transmitter is idle, \code{tx_load} is
+    already high, combinationally, so the transmitter loads on the next edge.
+  \item \textbf{Exactly one.} On that edge, \code{uart_tx} sees \code{start} in \code{STATE_IDLE},
+    latches the front byte and moves to \code{STATE_SEND}, and the FIFO pops the same byte. Because
+    \code{busy} is decoded combinationally from the state register, it is high from that edge on,
+    so \code{tx_load} falls in the very next cycle. It cannot reload while the transmitter is busy,
+    and the FIFO cannot pop a second byte for the same frame.
+  \item \textbf{Held low} for the rest of the frame by \code{tx_busy}, which stays high from the
+    load edge until the edge on which the stop bit's sixteenth tick returns the state machine to
+    \code{STATE_IDLE}. In that first idle cycle, a queued byte raises \code{tx_load} again.
+\end{itemize}
+Simulated with three bytes queued at once, the feeder popped exactly three times, once per frame,
+each pop on the first idle edge after the previous frame's \code{done}. The argument depends on
+\code{busy} rising on the load edge itself. With \code{busy} registered one cycle late, as a second
+flip-flop, \code{uart_tx_tb} and \code{uart_top_tb} both still pass, since each sends one byte and a
+second pop from an empty FIFO is ignored; but with three bytes queued the feeder popped twice on
+consecutive edges, the transmitter took the first and ignored the second, and the third byte never
+arrived.
+
+\ans{e} One byte, around the loop:
+\begin{enumerate}
+  \item The testbench plays a five-byte write of \code{TX_DATA} on \code{sclk}, \code{mosi} and
+    \code{ss}. \code{spi_slave} synchronizes the three lines and shifts each byte in;
+    \code{spi_reg_bridge} assembles the command and the four data bytes and, on the fifth, raises
+    \code{reg_write} with \code{reg_addr} 3 and the byte in \code{reg_wdata(7 downto 0)}.
+  \item \code{uart_regs} decodes that as \code{tx_push}, and its TX \code{fifo} stores the byte.
+  \item The \textbf{feeder} in \code{uart_top} sees the FIFO not empty and the transmitter not busy,
+    and raises \code{tx_load}: \code{uart_tx} latches the byte into its frame, and the TX FIFO pops.
+  \item \code{uart_tx} drives the frame out on \code{tx}, one bit per sixteen \code{baud_gen}
+    ticks.
+  \item The testbench's loopback, \code{rx <= tx}, returns it on the \code{rx} pin.
+  \item \code{sync} carries \code{rx} into the clock domain as \code{rx_s2}.
+  \item \code{uart_rx}, on the same ticks, finds the start edge, samples the eight bits and the stop
+    bit, and pulses \code{valid}, which is \code{rx_push}.
+  \item \code{uart_regs} pushes the byte into its RX \code{fifo}, and \code{STATUS} bit 1 rises.
+  \item The testbench polls \code{STATUS} over SPI until it sees bit 1, then reads \code{RX_DATA}:
+    \code{spi_reg_bridge} latches \code{reg_rdata}, which the bank's read mux fills from the RX
+    FIFO's front, and \code{spi_slave} shifts it out on \code{miso}, most significant byte first.
+\end{enumerate}
+The system testbench stops there, with the byte still in the RX FIFO: it never writes \code{RX_POP}.

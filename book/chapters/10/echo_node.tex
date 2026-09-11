@@ -1,0 +1,136 @@
+% Section 10.2, from lectures/L10/appendix/b_exercises.md: the description of app::EchoNode, and
+% the exercise that builds it.
+
+\section{What You Are Building: \code{app::EchoNode}}
+\label{c10:sec:echo_node}\label{c10:app:b}
+
+\subsection{The \code{app::EchoNode} application}
+\label{c10:sec:echo_app}
+\code{EchoNode} is the application that finishes the book: it receives a byte over the UART and
+sends it straight back. On the bench, what you type in the terminal comes back to you, having
+crossed every layer the book built. The application itself is tiny, because all the hard work is
+already done and tested underneath it: the driver, the transport, the peripheral. \code{EchoNode}
+just spends that stack.
+
+The important idea is that \code{EchoNode} is \textbf{software you write and host-test before you
+touch the bench}. It depends only on \code{driver::uart::Interface}, not on \code{Uart},
+\code{AvrSpi}, or any hardware, so you build it, test it against the UART stub, and only \emph{then}
+flash it and bring it up, as the last rung of the ladder (Exercise~\ref{c10:ex:c3}). By the time it
+reaches the bench, its logic is already proven; the only thing the bench adds is the wiring. This is
+the same discipline the whole book runs on --- host-test behind the interface seam first, hardware
+last --- applied one level up, to the application.
+
+This section \textbf{describes} \code{EchoNode}; you write it yourself. The UART stub it is tested
+against was written in \chapref{6}, as soon as the interface it implements existed.
+
+\subsection{The application seam: \code{app::Interface}}
+\label{c10:sec:app_interface}
+Applications sit behind their own interface, \code{app::Interface}, exactly as drivers sit behind
+\code{driver::uart::Interface}. It declares a single operation, \code{run(const volatile bool& stop)}, which
+runs the application until \code{stop} becomes \code{true}. \code{main()} holds an
+\code{app::Interface&} and calls \code{run()}, so it neither knows nor cares which application it
+runs; swapping \code{EchoNode} for another is a one-line change in \code{main()}.
+
+\code{stop} is a \code{const volatile bool&}, a flag the application only \emph{reads}, hence the
+\code{const}, owned by whoever started it. Setting it \code{true} asks the application to return from
+\code{run()}, which is a clean shutdown and, in a test, the way the loop is ended. It is
+\code{volatile} because it is written outside the loop that reads it: by the UART stub in a test,
+and on a target by whatever else may set it, an interrupt handler for instance. \code{run()} never
+writes the flag, and where nothing the loop calls could write it either, as with an interrupt
+handler, the compiler may read it once, keep it in a register and never see it change;
+\code{volatile} makes every pass read it from memory. It is a \code{volatile bool} rather than a
+\code{std::atomic}, because avr-libc is freestanding and ships no \code{<atomic>}, and on the
+single-core ATmega a byte read is already indivisible: atomicity is not the problem here, visibility
+is.
+
+\subsection{\code{app::EchoNode}}
+\label{c10:sec:echo_class}
+\code{EchoNode} implements \code{app::Interface}. Write it as \file{include/app/echo_node.hpp} (the
+declarations) and \file{source/app/echo_node.cpp} (the definitions), in the \code{app} namespace, in
+the same AVR-portable style as the driver (\code{<stdint.h>} and bare types, nested namespace
+blocks, no \code{[[nodiscard]]}). It is \code{final}, non-copyable, and non-movable.
+
+\textbf{Member variable.} There is one: \code{driver::uart::Interface& myUart}, the UART driver to
+echo over, injected through the constructor and held by reference. That reference is what lets the
+\emph{same} class run over the concrete \code{Uart} on hardware and over the UART stub in a test,
+with no change. Because it is a reference it is set once at construction and never rebound, which is
+also why copy and move are deleted: a reference member cannot be reassigned, the same reason
+\code{Uart} deletes them.
+
+\textbf{Methods.} The constructor, \code{EchoNode(driver::uart::Interface& uart)}, is
+\code{explicit} and \code{noexcept}. It takes the driver to echo over and stores it in \code{myUart},
+and it does no I/O, since construction only wires the dependency and therefore cannot fail.
+
+\code{run(const volatile bool& stop)} is the application loop, \code{noexcept}, overriding
+\code{app::Interface::run()}. It repeats until \code{stop} is \code{true}, and on each pass it checks
+\code{stop}, asks \code{myUart} for a byte with the \textbf{non-blocking} \code{read()}, and, if one
+arrived, echoes it straight back with \code{writeBlocking()}.
+
+The receive is a poll rather than \code{readBlocking()} on purpose. A blocking read would wait
+forever for a byte and never look at \code{stop} again, so the loop could not be stopped, and a test
+of it would hang. Polling \code{read()} returns to the top of the loop every pass to re-check
+\code{stop}, which is exactly what lets a caller, or the test, end it. The echo write may block,
+using \code{writeBlocking()}, because the byte is already in hand and simply has to go out.
+
+\subsection{Host-testing it, before any hardware}
+\label{c10:sec:echo_test}
+Because \code{EchoNode} depends only on \code{driver::uart::Interface}, you test it against the
+\textbf{UART stub} you wrote back in \chapref{6} (Exercise~\ref{c6:ex:4.1}), the moment that
+interface existed: no \code{Uart}, no transport, no FPGA. This is where it finally earns its keep.
+The trick that makes \code{run()} return in a test is the \code{stop} flag: the stub sets
+\code{stop} to \code{true} the moment its scripted RX runs out, so \code{run()} echoes every queued
+byte and then ends on the next check. The test queues the input, constructs the \code{EchoNode} over
+the stub, calls \code{run(stop)}, and asserts that the stub's recorded TX equals what it queued, in
+order. The suite lives in \file{test/app/echo_node_test.cpp} and, like the other host tests, may use
+full modern C++; run it with \code{make test}.
+
+That termination trick is also a check on your implementation: because it depends on \code{run()}
+polling \code{read()} and re-checking \code{stop}, a \code{run()} that blocked in
+\code{readBlocking()} would hang the test --- the test telling you the loop is not actually
+stoppable.
+
+\subsection{On the bench}
+\label{c10:sec:echo_bench}
+Nothing about the class changes for hardware. The application \code{main()} on the Nano constructs
+the real stack under the same interface --- an \code{AvrSpi}, a \code{Uart} over it,
+\code{configure()}d for 115200~8N1, then an \code{EchoNode} over the \code{Uart} --- and calls
+\code{run()} with a \code{stop} flag it leaves \code{false}, so the node echoes forever. That is the
+last rung of the bring-up ladder (Exercise~\ref{c10:ex:c3}): the exact class you host-tested, now
+echoing real characters typed in the terminal, over real SPI, through your own VHDL peripheral.
+
+\begin{aside}
+\textbf{How to check your work.} The provided host suite \file{fw/test/app/echo_node_test.cpp}, run
+by \code{make test}, checks \code{EchoNode} over the UART stub; it switches on once
+\file{app/echo_node.hpp} and \file{driver/uart/stub.hpp} both exist. The answers to the parts that
+are not code are in \secref{sol:c10}. Try each part before you read its answer.
+\end{aside}
+
+\exercise{\code{app::EchoNode}}{C++}
+\label{c10:ex:b1}
+
+\xpart{a} Write \file{include/app/interface.hpp} first: the \code{app::Interface} seam described
+above, with a virtual \code{noexcept} destructor that is \code{= default}, and the single pure
+virtual \code{run(const volatile bool& stop) noexcept}. Then write \file{include/app/echo_node.hpp} and
+\file{source/app/echo_node.cpp} from the description above --- the \code{myUart} member, the
+constructor, \code{run(const volatile bool& stop)}, and the deleted copy and move --- so that \code{EchoNode}
+implements \code{app::Interface}. Run \code{make test} and confirm that the echo test passes with no
+hardware.
+
+\xpart{b} The test drives \code{run()} with the stub, which stops once its scripted RX is exhausted,
+queuing the bytes \code{0x00}, \code{0x41} and \code{0xFF}. Add a case that queues \textbf{nothing}
+and confirm that \code{run()} returns immediately, having sent nothing. Which implementation mistake
+is this the only case that catches?
+
+\xpart{c} The method \code{run(const volatile bool& stop)} is the unit under test, ended by the flag. Explain
+why \code{run()} must poll the non-blocking \code{read()} rather than call \code{readBlocking()}, and
+connect it to why \code{stop} is passed by reference (and read every pass) rather than returned or checked once, and why
+it is \code{volatile}.
+
+\xpart{d} Change \code{EchoNode} to echo each byte back \textbf{uppercased} (leave non-letters
+alone), and update the test. Keep the transformation inside \code{run()}; the point is that the
+application layer is exactly where such policy belongs, above a driver that only moves bytes.
+
+\subsection{What's ahead}
+With \code{EchoNode} written and host-tested, \secref{c10:sec:exercises} is the bench: flash it and
+climb the bring-up ladder to watch it echo on real hardware, then trace one byte through every layer
+of the stack the book built.

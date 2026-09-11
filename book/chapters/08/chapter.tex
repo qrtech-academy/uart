@@ -1,0 +1,65 @@
+% Chapter 8, typeset from lectures/L08: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Driver, Tested}
+\label{c8:ch}
+
+{\large\itshape The wire, scripted, and the first \code{make test} the C++ half of the book has
+had.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The scripted stub}: \code{driver::transport::Stub}, a concrete
+    \code{driver::transport::Interface} that records every byte the driver sends and plays back
+    bytes a test queued for it. It is the C++ counterpart of a self-checking testbench.
+  \item \textbf{Host testing with QAcademy Test}: the provided suite constructs a \code{Stub},
+    constructs a \code{Uart} over it, scripts the replies, calls the real driver, and asserts on the
+    exact transactions that came out --- the five-byte framing, the command byte, the byte order,
+    and the ``no \code{RX_POP} on empty'' rule.
+  \item \textbf{Testing the test double first}: four \code{TransportStub} cases run before any driver
+    case, because every \code{Uart} case reads what the stub was scripted to reply, so a stub bug
+    reports itself as a driver failure.
+  \item \textbf{Blocking \code{write} and \code{read}} as thin free functions over the non-blocking
+    core, taking \code{Interface&} rather than \code{Uart&}, plus a provided demo that exercises the
+    whole API end to end.
+\end{itemize}
+\end{chapterbox}
+
+\chapref{7} built the driver and nothing ran it. This chapter supplies the wire, scripted, and turns
+on the first \code{make test} the C++ half of the book has had. After it you should be able to build
+a scripted stub and use it to assert the exact transactions the driver produces, including the byte
+order and the ``no \code{RX_POP} on empty'' behaviour; explain what a test double has to be faithful
+about and what it may ignore, and why the stub's two buffers are linear logs rather than FIFOs; read
+a red test and place the bug, telling a fault in the stub's script from a fault in the driver it is
+scripting; and build blocking helpers over a non-blocking core, and explain why the spinning lives
+above the driver rather than inside it.
+
+\textbf{Before you start}, you need the \code{Uart} of \chapref{7} and, through it, the three
+contracts of \chapref{6}; the driver is the thing under test, so it has to exist before the suite can
+say anything about it. The chapter also assumes unit and component testing with stubs and dependency
+injection, applied here to a real driver; embedded software testing is recommended but not required.
+
+Read \secref{c8:sec:testing}, which explains the scripted stub, what the provided host suite pins
+down, and why the blocking helpers sit above the interface rather than inside the driver. Then read
+the provided suite itself, \file{fw/test/uart/uart_test.cpp}: it is the executable specification of
+everything \chapref{7} wrote, and reading it before writing the stub tells you exactly which member
+names the stub owes it. The suite comes on the moment the last header exists:
+
+\begin{shell}
+make build-cpp        # builds fw/, runs its QAcademy Test suite
+\end{shell}
+
+\noindent Get the four \code{TransportStub} cases green first, then watch the \code{Uart} cases of
+\chapref{7} go green behind them without a line of driver code changing --- which is the point of
+having built the driver against an interface rather than against SPI. Of the stub, \code{injectRxWord}
+deserves the most care: most significant first there is the mirror of most significant first in
+\code{readReg}, and a mistake in one looks exactly like a mistake in the other.
+
+The exercises in \secref{c8:sec:exercises} finish the scripted \code{Stub} and get the whole host
+suite green (Exercise~\ref{c8:ex:1.1}), add \code{writeBlocking} and \code{readBlocking}
+(Exercise~\ref{c8:ex:2.1}), then copy in the provided \file{main.cpp} and run it
+(Exercise~\ref{c8:ex:2.2}).
+
+\input{chapters/08/testing}
+\input{chapters/08/summary}
+\input{chapters/08/exercises}

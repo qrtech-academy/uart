@@ -1,0 +1,33 @@
+% Section 2.3, from lectures/L02/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c2:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Draw a \code{tx} waveform} for a given byte, baud rate and frame format, and mark
+    the bit boundaries on it.
+  \item \textbf{Explain why the transmitter needs a baud tick at \code{16 x baud}} rather than at
+    the baud rate itself, given that the receiver of \chapref{3} oversamples.
+  \item \textbf{Implement a transmitter state machine} that loads, shifts and frames, with correct
+    \code{busy} and \code{done} timing, verified against a provided testbench.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Why is the line idle-high, and what does a receiver detect to know a frame has started?
+  \item A byte is sent at 115200~baud with the 50\,MHz clock: how many system cycles long is one
+    bit, and what \code{BAUD_DIV} produces it?
+  \item If \code{busy} rises one cycle late, what does the TX feeder of \chapref{5} do on that
+    cycle, and what happens to the byte it acts on?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+\chapref{3} takes the hard direction: recovering bytes from an asynchronous line, with a two-flop
+synchronizer on \code{rx}, 16x oversampling, mid-bit sampling and framing-error detection.

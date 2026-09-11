@@ -1,0 +1,79 @@
+% Chapter 9, typeset from lectures/L09: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The Real Transport, and Both Toolchains}
+\label{c9:ch}
+
+{\large\itshape The bottom layer becomes real; nothing above the seam changes, and both chips get
+programmed.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{The AVR's own SPI peripheral}: \code{SPCR}, \code{SPSR} and \code{SPDR} as genuine
+    memory-mapped \code{volatile} registers, configured as an SPI master at
+    f\textsubscript{osc}/16, which is 1\,MHz, mode 0, most significant bit first, matching Part~3 of
+    the protocol (\secref{proto:part3}).
+  \item \textbf{\code{AvrSpi} on top of it}, implementing the same \code{driver::transport::Interface}
+    seam that the \code{driver::transport::Stub} of \chapref{8} did, only now clocking real bytes.
+    Nothing above the seam changes, which is the whole return on the design work of \chapref{6}.
+  \item \textbf{What a freestanding target removes}, namely the heap, exceptions, RTTI and
+    iostreams, and what replaces each: static storage, return codes, virtual dispatch in place of
+    \code{dynamic_cast}, and logging over the AVR's own hardware UART.
+  \item \textbf{Building with avr-gcc and flashing with avrdude.}
+  \item \textbf{The other toolchain}: synthesizing \file{uart_board.vhd} in Quartus, assigning pins,
+    and programming the DE0-CV over USB-Blaster. Both halves of the course reach real hardware in
+    this chapter, and doing the FPGA side here rather than on bring-up day means a toolchain problem
+    surfaces while there is still time to solve it.
+\end{itemize}
+\end{chapterbox}
+
+This is where the stub gives way to real hardware. After this chapter you should be able to
+configure the AVR SPI master registers correctly for the transport contract, and explain each bit
+they set; implement \code{AvrSpi} so that the existing driver and its host tests are reused
+unchanged; explain which host-side idioms do not survive a freestanding build, and what replaces
+them; and synthesize and program the DE0-CV, and read a fit and timing report well enough to say
+whether the design met timing at 50\,MHz.
+
+\textbf{Before you start}, you need the \code{driver::transport::Interface} seam of \chapref{6},
+which is what the new transport implements, plus the \code{Uart} driver of \chapref{7} and the host
+tests of \chapref{8}, both reused here unchanged. You also need the finished \code{uart_top} of
+\chapref{5}, passing its system testbench, because the second half of the chapter puts that design
+on the FPGA. From embedded C the chapter assumes the AVR toolchain, avr-gcc and avrdude, and
+register-level programming; from modern embedded C++, the \code{volatile} semantics of memory-mapped
+registers. Install \textbf{Quartus Prime Lite} before you start: it is a multi-gigabyte download,
+and it is the one tool the book has not needed until now.
+
+Read \secref{c9:sec:avr_transport} for the SPI peripheral and \code{AvrSpi}, and
+\secref{c9:sec:freestanding} for the freestanding target and the toolchain. Alongside them, read the
+ATmega328P datasheet's SPI section covering \code{SPCR}, \code{SPSR} and \code{SPDR}, and the
+provided \file{avr/} runtime and Makefile under \file{fw/} (\file{fw/README.md}).
+
+Write \code{AvrSpi}, confirm that the host tests still pass unchanged with \code{make build-cpp},
+then cross-compile and flash a minimal bring-up \code{main} to see the toolchain end to end:
+
+\begin{shell}
+make -C fw/avr flash # avr-gcc + avrdude; see fw/README.md.
+\end{shell}
+
+\noindent \code{AvrSpi} is about forty lines; go through \code{SPCR} bit by bit as you write it,
+because a wrong bit here is a bug you would otherwise meet on a logic analyzer at the bench.
+
+Then take the same journey on the other chip: synthesize the \code{uart_top} finished in
+\chapref{5} through the provided \file{uart_board.vhd} wrapper, read the fit and timing report, and
+program the DE0-CV over USB-Blaster. What the board can show on its own is the data-plane pin
+loopback: with the wrapper's \code{rx} pin wired straight to its \code{tx} pin, bypassing
+\code{uart_top}, a terminal on the USB-serial adapter echoes what you type. The peripheral itself
+cannot be exercised yet: it transmits only what an SPI master writes to \code{TX_DATA}, and that
+master is the Nano, in \chapref{10}.
+
+The exercises in \secref{c9:sec:exercises} implement \code{AvrSpi} (Exercise~\ref{c9:ex:1}) and the
+freestanding bring-up \code{main} (Exercise~\ref{c9:ex:2}), add logging over the AVR's own hardware
+UART and work out one \code{readReg()} round trip against the 1\,MHz \code{SCK} budget, measuring it
+on a logic analyzer if you have one (Exercise~\ref{c9:ex:3}). Synthesize and program your own
+\code{uart_top} as well (Exercise~\ref{c9:ex:4}), so that both chips are running your code before you
+reach the bench.
+
+\input{chapters/09/avr_transport}
+\input{chapters/09/freestanding}
+\input{chapters/09/summary}
+\input{chapters/09/exercises}

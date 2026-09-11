@@ -1,0 +1,173 @@
+% Section 7.3, from lectures/L07/appendix/b_exercises.md.
+
+\section{Exercises}
+\label{c7:sec:exercises}\label{c7:app:b}
+
+\begin{aside}
+\textbf{How to work these.} These exercises implement the \code{Uart} driver over the contracts of
+\chapref{6}: the private register core that turns each access into one five-byte transaction, and
+every public method of the interface built on it.
+
+\textbf{How to check your work.} Nothing runs yet. The provided host suite,
+\file{fw/test/uart/uart_test.cpp}, is guarded on four headers, two of which belong to \chapref{8},
+so \code{make test} still reports there is nothing to do; the check on this work arrives in the next
+chapter, and until then the specification below is the contract. \code{make build} has nothing to
+build yet either, since it waits for the \file{source/main.cpp} that \chapref{8} provides, so check
+that the driver compiles by hand, from \file{fw/}:
+\code{g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only source/driver/uart/uart.cpp}.
+
+Every exercise in this chapter is code, so Appendix~\ref{sol:ch} has nothing to add here.
+\end{aside}
+
+Work in \file{fw/}. You will add:
+
+\begin{console}
+include/
+    driver/
+        uart/
+            uart.hpp
+source/
+    driver/
+        uart/
+            uart.cpp
+\end{console}
+
+The driver lives in the \code{driver::uart} namespace. These conventions apply to \file{include/}
+and \file{source/}, which have to cross-compile for the ATmega; \file{test/} and
+\file{include/arch/test/} are host-only and never reach avr-gcc, which is why the provided suites
+next to them use \code{<cstdint>}, \code{std::}, \code{namespace driver::uart::test} and
+\code{[[nodiscard]]} freely. Follow the same AVR-portable conventions as in \chapref{6}
+(\secref{c6:sec:exercises}): \code{<stdint.h>} and bare \code{uint8_t} and \code{size_t} (no
+\code{std::}), nested namespace blocks (not \code{namespace driver::uart { ... }}), and no
+\code{[[nodiscard]]}.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The \code{Uart} Driver}
+\label{c7:set:1}
+
+\exercise{The class}{C++}
+\label{c7:ex:1.1}
+In \file{include/driver/uart/uart.hpp}, declare \code{class Uart final : public Interface}. It holds
+the transport as a reference member, \code{transport::Interface& myTransport}, injected through the
+constructor, so that the same driver runs over the stub of \chapref{8} and over the real SPI of
+\chapref{9}; the constructor therefore takes a \code{driver::transport::Interface&} and stores it.
+Delete copy and move, since a reference member cannot be reassigned and the intent is worth making
+explicit. Declare each \code{Interface} method with \code{override}, keeping the \code{noexcept} and
+\code{const} qualifiers from the interface exactly.
+
+Put the two private register helpers (Exercise~\ref{c7:ex:1.2}) in the private section. Implement
+the bodies in \file{source/driver/uart/uart.cpp}.
+
+\exercise{The register access core (private)}{C++}
+\label{c7:ex:1.2}
+Add two private helpers. They are the \textbf{only} methods that touch \code{myTransport}, and each
+performs one five-byte SPI transaction from Part~3 of the protocol (\secref{proto:part3}).
+
+\code{readReg(index)} returns a register's 32-bit value. It begins the transaction with
+\code{myTransport.begin()}, then sends the command byte, which is the register index with the write
+bit clear (bit 7 is 0), using \code{myTransport.transfer(command)} and ignoring the byte that comes
+back, since the reply to the command byte is meaningless. It then clocks out the four data bytes by
+calling \code{myTransport.transfer(0x00)} four times, sending dummy zeros, and assembles the four
+returned bytes into the result \textbf{most significant byte first}, so the first byte back is bits
+31 to 24. Finally it ends the transaction with \code{myTransport.end()} and returns the assembled
+value.
+
+Every byte here moves through the injected \code{myTransport}, using \code{myTransport.transfer()},
+the raw duplex SPI exchange. Do \textbf{not} call the driver's own \code{write()}: that is the public
+``send a UART byte'' operation, a different thing entirely, and calling it here would recurse.
+
+\code{writeReg(index, value)} commits a 32-bit value to a register. It begins the transaction, sends
+the command byte, which is the register index with the write bit set (bit 7 is 1), via
+\code{myTransport.transfer(command)} while ignoring the reply, then sends the four bytes of
+\code{value} \textbf{most significant first} (bits 31 to 24 first), each with
+\code{myTransport.transfer(...)} and each reply ignored, and ends the transaction.
+
+Make \code{readReg} a \code{const} member: it does not modify the \code{Uart} object; it exchanges
+bytes through the transport, whose state is its own. \code{writeReg} need not be \code{const}.
+Marking \code{readReg} \code{const} is exactly what lets \code{status()} and \code{errorFlags()} be
+\code{const}.
+
+Most significant first, in both helpers, is the detail the byte-order test exists to catch. A
+reversed value is a different value to the hardware.
+
+\task{Reaching a non-\code{const} transport from a \code{const} method (\code{const_cast})}
+\code{readReg} is \code{const}, but the transport's \code{begin()}, \code{transfer()} and
+\code{end()} are \textbf{not}: driving SPI is an action with side effects, not an observation. So a
+\code{const} method that has to perform a register read must reach a non-\code{const} operation, and
+this book writes that reach out explicitly:
+
+\begin{cppcode}
+uint32_t Uart::readReg(uint8_t addr) const noexcept
+{
+    auto& transport = const_cast<transport::Interface&>(myTransport);
+    transport.begin();
+    // ... transport.transfer(...) ...
+    transport.end();
+    // ...
+}
+\end{cppcode}
+
+\noindent Read that cast carefully, because it is doing less than it looks like it is doing.
+\textbf{The enclosing \code{const} never reached the transport in the first place.}
+\code{myTransport} is a \emph{reference} member, and \code{const} does not propagate through a
+reference: inside a \code{const} method, \code{myTransport} still names a plain
+\code{transport::Interface&}, so the compiler would accept \code{myTransport.begin()} with no cast
+at all. The cast yields the type the expression already had. In general, \code{const_cast} is what
+you reach for when a logically \code{const} method (an observer such as \code{status()}) has to
+invoke a non-\code{const} operation underneath, and you have decided the method should stay
+\code{const} to its callers. It is a deliberate compromise, and worth understanding precisely.
+
+The alternatives are marking the method non-\code{const}, which is honest but then means
+\code{status()} cannot be \code{const}, or using a \code{mutable} member, which is right for a cache
+and awkward for a reference. \code{const_cast} keeps the public \code{const} promise while admitting
+that the implementation must drive something underneath. So why write a cast the compiler does not
+ask for? Because it makes the intent explicit at the one line where a \code{const} method starts
+driving hardware, and because it becomes genuinely \emph{required} the moment the transport is held
+differently --- by value, or behind a \code{const}-propagating handle --- at which point the object's
+\code{const} does reach the member and the calls stop compiling. Writing it now makes that change a
+one-word edit rather than a redesign. Be clear which of the two you are relying on: here it is
+documentation, not necessity.
+
+The one hard rule is to cast away \code{const} only on an object that is not actually \code{const}.
+\code{myTransport} refers to a real, non-\code{const} transport the caller owns, so driving it is
+defined behaviour; casting away \code{const} on a genuinely \code{const} object and then mutating it
+is undefined behaviour.
+
+\exercise{The public methods}{C++}
+\label{c7:ex:1.3}
+Implement each \code{Interface} method in terms of the two helpers and the register map. The
+register semantics of \chapref{5} make them short.
+
+\code{configure(baudDiv)} sets the baud rate first and enables afterwards:
+\code{writeReg(BAUD_DIV, baudDiv)}, then \code{writeReg(CTRL, 1U << ENABLE)}. Note the shift:
+\code{ENABLE} is a bit \emph{position}, as every constant in the register map is, so writing it
+directly would send \code{0} and clear the register rather than set bit 0.
+
+\code{write(byte)} reads \code{STATUS}; if \code{TX_READY} is set it calls
+\code{writeReg(TX_DATA, byte)} and returns \code{true}, and otherwise it writes nothing and returns
+\code{false}.
+
+\code{read(byte&)} reads \code{STATUS}; if \code{RX_VALID} is set it reads \code{RX_DATA} into the
+out-parameter, then writes \code{writeReg(RX_POP, 1)} to advance the FIFO, and returns \code{true}.
+If \code{RX_VALID} is clear it returns \code{false} and issues \textbf{no} \code{RX_POP}.
+
+That success path is three distinct register accesses, in this order, which is the contract of
+\secref{c5:app:a}. \textbf{Poll} \code{STATUS} to learn whether a byte is even available.
+\textbf{Read} \code{RX_DATA}, which is a \emph{pure read}: it returns the front byte but does
+\textbf{not} remove it from the FIFO. Then \textbf{pop} by writing \code{RX_POP}, a separate write
+that discards the front byte so the next call sees the next one.
+
+Because \code{RX_DATA} does not pop on its own, the \code{RX_POP} write is not optional. If you leave
+it out, whether by forgetting it or by assuming the read already advanced the FIFO, the front byte is
+never discarded, so every following \code{read} polls \code{RX_VALID}, finds it still set, re-reads
+\code{RX_DATA}, and returns the \textbf{same byte forever}. Popping \emph{before} the read is the
+opposite mistake: it discards the current byte unread and skips data.
+
+The last three are one-liners. \code{status()} returns \code{readReg(STATUS)}, \code{errorFlags()}
+returns \code{readReg(ERROR_FLAGS)}, and \code{clearErrors()} calls \code{writeReg(ERROR_FLAGS, 0)}.
+
+\subsection*{What's ahead}
+\chapref{8} scripts a transport under this driver: \code{driver::transport::Stub}, the provided host
+suite that drives the real \code{Uart} over it, and the blocking helpers on top. Every mistake this
+section warns about --- the reversed byte order, the missing \code{RX_POP}, the bit position used as
+a mask --- is something a case in that suite exists to catch.

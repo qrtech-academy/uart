@@ -1,0 +1,102 @@
+% Section 1.1, from lectures/L01/appendix/a_uart_def.md, with the package itself typeset straight
+% from hw/uart_def.vhd.
+
+\section{\code{uart_def.vhd} (provided)}
+\label{c1:sec:uart_def}\label{c1:app:a}
+\code{uart_def} is the register map in VHDL form: one package of named constants for the seven
+register indices and the meaning of each \code{STATUS}, \code{CTRL} and \code{ERROR_FLAGS} bit,
+from Part~2 of the protocol (\secref{proto:part2}). Like the SPI transport, \textbf{it is given to
+you}; you write every module in this course, but not the map. It exists so that the register bank
+(\code{uart_regs}, \chapref{5}) and the testbenches can name registers and bits instead of writing
+bare numbers, and so that the two sides of the wire cannot drift apart.
+
+The C++ driver carries the same map in \file{register_map.hpp}, transcribed once on each side of the
+wire. Both store \textbf{bit positions}, not masks, so \code{STATUS} bit~1 is the constant \code{1}
+in both languages. The C++ side declares only the subset the driver actually uses, under the
+\code{reg::}, \code{status::}, \code{ctrl::} and \code{error::} namespaces; where a name exists on
+both sides, the value is identical. You do not edit \code{uart_def}, but read it closely: a module
+that indexes the wrong bit is a bug you would only find on the bench.
+
+\subsection{The constants}
+\label{c1:sec:constants}
+Everything is a \code{natural} in \code{package uart_def}. The register indices are the offset
+divided by 4; the bit constants are positions into a 32-bit register word.
+
+\begin{booktable}{@{}p{7.4em}p{8.6em}rL@{}}
+  \thead{Group} & \thead{Constant} & \thead{Value} & \thead{Meaning} \\
+  \midrule
+  Register index & \code{REG_STATUS} & 0 & Status register. \\
+   & \code{REG_CTRL} & 1 & Control register. \\
+   & \code{REG_BAUD_DIV} & 2 & Baud divider. \\
+   & \code{REG_TX_DATA} & 3 & Push a byte into the TX FIFO. \\
+   & \code{REG_RX_DATA} & 4 & Front byte of the RX FIFO (a pure read). \\
+   & \code{REG_RX_POP} & 5 & Advance the RX FIFO. \\
+   & \code{REG_ERR_FLAGS} & 6 & Error flag register. \\
+  \midrule
+  \code{STATUS} bit & \code{ST_TX_READY} & 0 & The TX FIFO is not full. \\
+   & \code{ST_RX_VALID} & 1 & The RX FIFO is not empty. \\
+   & \code{ST_ERROR} & 2 & One or more error flags are set. \\
+   & \code{ST_TX_IDLE} & 3 & The TX FIFO is empty and the line is idle. \\
+  \midrule
+  \code{CTRL} bit & \code{CT_ENABLE} & 0 & Enable the peripheral. \\
+   & \code{CT_PARITY_LO} & 1 & Parity select, low bit. \\
+   & \code{CT_PARITY_HI} & 2 & Parity select, high bit (00 none, 01 even, 10 odd). \\
+   & \code{CT_STOP} & 3 & 0 for 1 stop bit, 1 for 2 stop bits. \\
+   & \code{CT_RX_IRQ} & 4 & RX-valid IRQ mask. \\
+   & \code{CT_TX_IRQ} & 5 & TX-ready IRQ mask. \\
+  \midrule
+  \code{ERROR_FLAGS} bit & \code{ER_FRAMING} & 0 & Framing error. \\
+   & \code{ER_PARITY} & 1 & Parity error. \\
+   & \code{ER_OVERRUN} & 2 & Overrun. \\
+\end{booktable}
+
+Because they are positions, you index a \code{std_logic_vector} with them directly, for example
+\code{status(ST_RX_VALID)} for the RX-valid bit, exactly as \code{1U << status::RX_VALID} forms the
+same mask on the C++ side. Laid out as words, the three flag registers are shown in
+Figure~\ref{c1:fig:reg_fields}.
+
+\bookfigure{reg_fields}{The bit fields of \code{STATUS}, \code{CTRL} and \code{ERROR_FLAGS}}
+  {c1:fig:reg_fields}
+
+\code{CTRL} is the only one with bits this course does not act on, and \code{ERROR_FLAGS} the only
+one where two of the three have no producer yet; both are noted where they are built, in
+\secref{c5:app:a}.
+
+\subsection{The \code{to_hex} helper}
+\label{c1:sec:to_hex}
+The package also carries one small convenience for the testbenches: \code{to_hex}, which renders a
+\code{std_logic_vector} as an uppercase, zero-padded hex string. It pads to whole nibbles taken from
+the argument's own length, so \code{x"A5"} becomes \code{"A5"} and a 12-bit bus becomes three
+digits. It lets a testbench name the offending value in a failure message,
+
+\begin{vhdlcode}
+report "rx_data byte 1 wrong: expected 0xA5, got 0x" & to_hex(captured_rx) & "!"
+    severity error;
+\end{vhdlcode}
+
+\noindent rather than a bare ``mismatch''. It is the one piece of behaviour in an otherwise pure
+constants package: declared in the package, defined in the package body, and called only by
+testbenches. No synthesizable module uses it.
+
+The whole package, constants and helper, is short enough to print as it stands in the repository:
+
+\vhdlfile{hw/uart_def.vhd}
+
+\subsection{Where it fits}
+\label{c1:sec:uart_def_fits}
+\code{uart_def} sits underneath everything that speaks in registers. \code{uart_regs}
+(\chapref{5}) is the module that actually reads and writes these bits; the package only names them.
+\code{uart_top} never uses it at all, because the top wires the register bus without interpreting
+anything carried on it. Six testbenches analyze against the package, most of them only for
+\code{to_hex}.
+
+On the far side of the SPI wire, the driver you build from \chapref{6} on reaches the same
+registers through the same positions. That is the point of transcribing the map twice rather than
+inventing it twice: the protocol is the single source, and each language is checked against it
+rather than against the other.
+
+\subsection{What's ahead}
+\secref{c1:sec:uart_top} is the peripheral top, \code{uart_top}, the structural skeleton built
+against this package. The exercises in \secref{c1:sec:exercises} read \code{uart_def}, then build
+\code{uart_top} from the ground up. The datapath and register modules the top composes arrive in
+Chapters~2 to~5, and are instantiated into \code{uart_top} as each one lands.

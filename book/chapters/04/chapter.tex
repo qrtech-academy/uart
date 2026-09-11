@@ -1,0 +1,78 @@
+% Chapter 4, typeset from lectures/L04: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{The FIFO and the Receive Path}
+\label{c4:ch}
+
+{\large\itshape The buffer the register bank needs two of, and the wiring that puts
+Chapter~3's work into the top.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{A small synchronous FIFO} (\code{fifo.vhd}): a ring buffer with a head, a tail and a
+    count, written once as a generic module because the register bank in \chapref{5} needs two of
+    them, one per direction.
+  \item \textbf{The look-then-advance read}: \code{rdata} shows the front entry continuously and
+    \code{rd} is what \emph{discards} it. That split is not a stylistic choice --- it is exactly what
+    lets \chapref{5} keep \code{RX_DATA} a pure read with a separate \code{RX_POP}, and it is the
+    first place in the course where a register's semantics reach down into a datapath block's
+    ports.
+  \item \textbf{The corner cases that a count gets wrong}: a write to a full FIFO and a read from an
+    empty one, both dropped rather than allowed to cross the pointers, and a \code{wr} and \code{rd}
+    on the same edge, where a count adjusted in two independent branches quietly loses an entry.
+  \item \textbf{The receive path in \code{uart_top}}: \code{sync} on the \code{rx} pin producing
+    \code{rx_s2}, then the \code{uart_rx} of \chapref{3} behind it, so the pin crosses into the clock
+    domain once, in the module that owns the pin.
+  \item \textbf{Where overrun lives}: the receiver reports a framing error but can never report an
+    overrun, because it does not know whether anyone has read the previous byte. The RX FIFO's
+    \code{full} flag is what makes it detectable, and the register bank is where it would be
+    reported: \chapref{5} reserves \code{ER_OVERRUN} for it, but gives it no producer in this build.
+\end{itemize}
+\end{chapterbox}
+
+One module and one wiring job, both of which \chapref{5} depends on. After this chapter you should
+be able to build a synchronous FIFO with a look-then-advance read, and explain why that split is
+what lets \chapref{5} keep \code{RX_DATA} a pure read; say what \code{full} and \code{empty} guard,
+and what a write to a full FIFO or a read from an empty one must do instead of wrapping the pointers
+past each other; instantiate the receive path into \code{uart_top} in the right order, with the
+synchronizer on the pin and the receiver behind it, and explain why binding \code{rx} straight to
+\code{uart_rx} would analyze cleanly and still be wrong; and explain what an overrun is, why the
+receiver cannot detect one on its own, and which block has the one piece of information that makes
+it detectable.
+
+\textbf{Before you start}, you need the \code{sync} and \code{uart_rx} of \chapref{3}, which
+Exercise~\ref{c4:ex:2} instantiates, and the \code{uart_top} skeleton from \chapref{1} that they go
+into, with \code{baud_gen} and \code{uart_tx} already in it from \chapref{2}. Nothing new is assumed
+from the foundations: the FIFO is an ordinary clocked design with an array, two pointers and a
+count.
+
+Read \secref{c4:sec:fifo} for \code{fifo}; that is the specification you build the module from. Then
+read the provided testbench, \file{hw/fifo_tb.vhd}, which uses a depth-4 instance: it checks
+\code{empty} after reset and \code{full} after four pushes, drops a fifth push rather than
+overwriting, drains the four bytes in the order they went in, and finally raises \code{wr} and
+\code{rd} on the same edge with two entries queued --- one in and one out, so the depth must not
+move. The FIFO is run against it as it lands:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd fifo.vhd fifo_tb.vhd
+ghdl -e --std=93 fifo_tb && ghdl -r --std=93 fifo_tb --assert-level=error
+\end{shell}
+
+\noindent The two places the FIFO goes wrong are the guards that keep the pointers from crossing,
+and the count on a simultaneous push and pop. Then the chapter returns to \code{uart_top} and adds
+the receive path, which is two instantiations rather than one: \code{sync} on the \code{rx} pin,
+then \code{uart_rx} reading \code{rx_s2} rather than \code{rx}. They are short, and they are the
+point of the chapter as much as the module is: the pin crosses once, in the module that owns it. The
+top then analyzes with only \code{uart_regs} still missing, and the system testbench stays skipped
+until \chapref{5} supplies it. The FIFO is not instantiated in the top at all; it belongs to the
+register bank that owns it.
+
+In the exercises in \secref{c4:sec:exercises} you build \code{fifo} and run its testbench
+(Exercise~\ref{c4:ex:1}), add \code{sync} and \code{uart_rx} to \code{uart_top}
+(Exercise~\ref{c4:ex:2}), then reason about why overrun detection belongs to the register bank
+rather than the receiver (Exercise~\ref{c4:ex:3}).
+
+\input{chapters/04/fifo}
+\input{chapters/04/summary}
+\input{chapters/04/exercises}

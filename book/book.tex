@@ -1,0 +1,45 @@
+% UART: Hardware, Driver & Integration - the book.
+%
+% Built with LuaLaTeX; see the Makefile. The design is in uartbook.sty, the front matter in
+% front/, each chapter in chapters/NN/, one file per section, mirroring the appendices of the
+% lecture it is typeset from, and the back matter in back/: the protocol specification, the answers
+% to the exercises that are not code, and the two written papers from exam/. The solutions to the
+% code exercises are not printed; the testbenches and host suites in the repository are the check.
+\documentclass[10pt, twoside, openright]{book}
+\usepackage{uartbook}
+
+\begin{document}
+
+\frontmatter
+\input{front/title}
+\tableofcontents
+\input{front/preface}
+
+\mainmatter
+\part{The FPGA Peripheral}
+\label{part:vhdl}
+\input{chapters/01/chapter}
+\input{chapters/02/chapter}
+\input{chapters/03/chapter}
+\input{chapters/04/chapter}
+\input{chapters/05/chapter}
+
+\part{The Driver and Integration}
+\label{part:cpp}
+\input{chapters/06/chapter}
+\input{chapters/07/chapter}
+\input{chapters/08/chapter}
+\input{chapters/09/chapter}
+\input{chapters/10/chapter}
+
+\appendix
+\addtocontents{toc}{\protect\addvspace{3ex}}
+\input{back/protocol}
+\input{back/answers/chapter}
+\input{back/exam/about}
+\input{back/exam/paper_a}
+\input{back/exam/paper_b}
+\input{back/exam/answers_a}
+\input{back/exam/answers_b}
+
+\end{document}

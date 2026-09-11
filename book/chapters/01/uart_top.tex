@@ -1,0 +1,150 @@
+% Section 1.2, from lectures/L01/appendix/b_uart_top.md, with the provided reset synchronizer
+% typeset straight from hw/reset_sync.vhd.
+
+\section{Designing \code{uart_top.vhd}}
+\label{c1:sec:uart_top}\label{c1:app:b}
+\code{uart_top} is the peripheral: the datapath (\code{baud_gen}, \code{uart_tx}, \code{uart_rx}),
+the register bank (\code{uart_regs}), and the provided SPI transport (\code{spi_slave},
+\code{spi_reg_bridge}) that lets an off-chip processor reach the registers. It is built
+\textbf{first}, top-down, before any of those blocks exist. That is the point of starting here: the
+top defines every block's interface, so when \code{baud_gen} arrives in \chapref{2} or
+\code{uart_regs} in \chapref{5}, the ports each one must expose are already fixed by how
+\code{uart_top} instantiates it.
+
+What this chapter produces is the top's \emph{skeleton}: the entity, the provided
+\code{reset_sync}, the provided transport, and the handful of signals those three need. It is
+wiring, almost entirely: the pieces of real logic this file eventually holds, the TX feeder and one
+type conversion, are written later, in the chapters that bring the signals they act on. The
+datapath and register blocks do not exist yet; each is instantiated here as it is created across
+Chapters~2 to~5, and the system testbench turns green once the last of them lands.
+
+The signals follow the same rule. Rather than declaring names for modules that will not exist for
+weeks, each chapter reads the entity of the block it is about to instantiate and declares exactly
+the signals that block's ports imply. Two conventions keep it readable: a \textbf{\code{spi_}
+prefix} for signals carrying SPI traffic between the two transport blocks, and an \textbf{\code{_s2}
+suffix} for anything that has been through a two-flop synchronizer, which is why every submodule
+expects \code{reset_s2_n}.
+
+This section is the reasoning behind the file. The exercises in \secref{c1:sec:exercises} are where
+it is actually typed, port by port and signal by signal.
+
+\subsection{Interface}
+\label{c1:sec:uart_top_interface}
+
+\bookfigure{uart_top}{Module \code{uart_top}}{c1:fig:uart_top}
+
+\begin{booktable}{@{}p{8.6em}p{2em}p{6em}L@{}}
+  \thead{Port} & \thead{Dir} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \code{clock} & in & \code{std_logic} & 50\,MHz system clock. \\
+  \code{reset_n} & in & \code{std_logic} & Asynchronous reset, active low (a button or a
+    supervisor). \\
+  \code{sclk}, \code{mosi}, \code{ss} & in & \code{std_logic} & SPI from the processor. \\
+  \code{rx} & in & \code{std_logic} & The UART serial input. \\
+  \code{miso} & out & \code{std_logic} & SPI to the processor. \\
+  \code{tx} & out & \code{std_logic} & The UART serial output. \\
+\end{booktable}
+
+The ports are declared all inputs first, then all outputs; \code{uart_top_tb} binds them
+positionally, so the order above is the contract. Nothing in this course associates a port by
+name, which means a transposed pair of same-type pins is invisible to the analyzer, and stays
+invisible until the system testbench runs at the end of \chapref{5}.
+
+\code{uart_top} is the only block that takes \code{reset_n}, the raw asynchronous reset, from
+outside. The one block inside it that also takes \code{reset_n} is \code{reset_sync}, because
+manufacturing a clean reset is its whole job; every other block takes \code{reset_s2_n}, the
+synchronized version it produces.
+
+\subsection{Skeleton behaviour (wiring, and one placeholder)}
+\label{c1:sec:uart_top_behaviour}
+The transport comes first, because it is what makes a register bus exist at all. \code{spi_slave}
+and \code{spi_reg_bridge} are given to you, testbench-verified; their wire protocol is Part~3 of the
+protocol (\secref{proto:part3}), and their port lists are shown in Exercise~\ref{c1:ex:2}. You
+instantiate them; you do not write them. \code{spi_slave} is the byte engine: it shifts bytes in and
+out on \code{sclk} and reports each completed one. \code{spi_reg_bridge} assembles those bytes into
+the five-byte register transactions the protocol defines, drives \code{reg_addr}, \code{reg_wdata}
+and \code{reg_write}, and reads back whatever \code{reg_rdata} presents to it. The bank that will
+answer on that bus arrives in \chapref{5}; until then the bus exists with nothing behind it.
+
+The \textbf{reset synchronizer} is provided, as \code{reset_sync}, and you instantiate it.
+\code{reset_n} comes from off-chip, so it can be released at any instant relative to \code{clock}. A
+release landing near a clock edge could let different flip-flops leave reset on different cycles,
+and a design that starts half-reset can sit in a state its own logic never expects.
+\code{reset_sync} asserts asynchronously, so the moment \code{reset_n} goes low everything resets
+with no clock needed, and releases synchronously, two flip-flops later, so the release is lined up
+with the clock. Its two internal flops stay inside it, so the only signal it adds to your top is
+\code{reset_s2_n}. The whole module is short enough to print:
+
+\vhdlfile{hw/reset_sync.vhd}
+
+\noindent That output then feeds every submodule, and the blocks you write in Chapters~2 to~5 all
+take it the same way the provided ones do: \code{reset_s2_n} goes in the process's sensitivity
+list, so the assertion still needs no clock edge, while the \emph{release} is already lined up
+because \code{reset_sync} lined it up. That is the house style throughout \file{hw/}, and it is what
+makes an asynchronous assertion safe in the first place: the dangerous edge, the release, was dealt
+with once, here.
+
+Note that this job is not \code{sync}'s (\chapref{3}), even though that module is also two flops in
+series. \code{sync} takes \code{reset_s2_n} as an \emph{input}, so it consumes the very signal
+\code{reset_sync} produces, and a block that needs a clean reset cannot be the block that
+manufactures one.
+
+The \textbf{TX feeder} is written in \chapref{5}, once both signals it needs exist. \code{uart_tx}
+(\chapref{2}) sends a byte when its \code{start} is pulsed, and the TX FIFO inside \code{uart_regs}
+(\chapref{5}) holds the bytes waiting to go. The feeder is what connects them: \code{tx_load} is
+FIFO-not-empty AND transmitter-not-busy, and \code{tx_pop} is that same signal, so the transmitter
+latches the front byte and the FIFO advances in the same cycle. The instant the transmitter goes
+busy, \code{tx_load} drops, so exactly one byte moves per idle transmitter, never two. The RX side
+needs no feeder at all: the receiver's \code{valid} and \code{data_out} become \code{uart_regs}'
+\code{rx_push} and \code{rx_byte}, and the bank pushes its own FIFO.
+
+The other piece is a \textbf{type conversion}, written in \chapref{2} alongside \code{baud_gen}.
+\code{baud_gen} takes its divider as a \code{natural range 1 to 65535}, but \code{BAUD_DIV} leaves
+the register bank as a \code{std_logic_vector(15 downto 0)}, so \code{uart_top} converts it. That
+conversion is guarded, because until \code{uart_regs} exists in \chapref{5} nothing drives the
+vector, and \code{to_integer} on an all-\code{'U'} value warns and substitutes a zero of its own
+choosing, which is a value that port's range does not accept. Picking a legal value yourself costs
+one conditional expression, and this is the only place in \code{uart_top} where a
+\code{std_logic_vector} becomes an integer.
+
+The one thing this chapter does write is a \textbf{placeholder}: \code{reg_rdata} tied to zeros, so
+the bridge reads a defined value rather than \code{'U'} while the register bank is missing. It is
+deleted in \chapref{5}, when \code{uart_regs} starts driving that vector for real.
+
+\subsection{What the testbench pins down}
+\label{c1:sec:uart_top_tb}
+\code{uart_top_tb} is the system testbench, and it does not run until the last block lands in
+\chapref{5}. It drives the peripheral entirely over SPI, as the processor would, and loops \code{tx}
+back into \code{rx}. A single byte written over SPI is therefore transmitted, received through the
+loopback, pushed into the RX FIFO, and read back over SPI: an end-to-end check that the reset
+synchronizer, the transport, the register bank, the FIFOs, the feeder and both datapath halves all
+agree. It also writes \code{BAUD_DIV} and reads it back, and checks \code{STATUS}, so the register
+plumbing is exercised alongside the datapath.
+
+Its one line of instantiation is also why the entity looks the way it does. The testbench binds
+\code{port map(clock, reset_n, sclk, mosi, ss, rx, miso, tx)}, and that order, not the drawing in
+Figure~\ref{c1:fig:uart_top}, is what the port table records.
+
+\subsection{Where it fits}
+\label{c1:sec:uart_top_fits}
+\code{uart_top} faces two directions. Outward, its eight pins are the FPGA boundary: \code{sclk},
+\code{mosi}, \code{ss} and \code{miso} reach the ATmega328P on the other side of the wire, and the
+driver built in Chapters~6 to~9 talks to exactly these ports; \code{rx} and \code{tx} are the
+serial line itself. In \chapref{9} a board wrapper sits above it and maps those pins onto DE0-CV
+package pins, which is the only thing that wrapper does.
+
+Inward, it is the one file revisited in every VHDL chapter, and each visit adds a block, the
+signals that block's entity implies, and any glue those signals now make possible. This chapter
+leaves it with the entity, \code{reset_sync}, the transport and a register bus nothing answers.
+\chapref{2} adds \code{baud_gen} and \code{uart_tx}, and with them the \code{BAUD_DIV} conversion,
+so the top can transmit. \chapref{4} adds \code{sync} on the \code{rx} pin, producing \code{rx_s2},
+and \code{uart_rx} behind it, so the receiver never sees the raw asynchronous input. \chapref{5}
+adds \code{uart_regs}, which owns both FIFOs, and the TX feeder that connects it to the transmitter;
+with every block present, the system testbench elaborates for the first time. The rule that keeps
+it compiling throughout is that you only ever instantiate an entity after you have created it.
+
+\subsection{What's ahead}
+The exercises in \secref{c1:sec:exercises} are, for \code{uart_top}, also the build sheet:
+everything needed to type the file, from the entity down to the last internal signal, is there. In
+\chapref{2} you build the first two datapath blocks, \code{baud_gen} and \code{uart_tx}, and
+instantiate them here.

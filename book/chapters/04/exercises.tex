@@ -1,0 +1,155 @@
+% Section 4.3, from lectures/L04/appendix/b_exercises.md.
+
+\section{Exercises}
+\label{c4:sec:exercises}\label{c4:app:b}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c4:ex:1} reinforces \secref{c4:sec:fifo}.
+Exercise~\ref{c4:ex:2} puts the receiver built in \chapref{3} into \code{uart_top}, behind the
+synchronizer that owns the crossing. Exercise~\ref{c4:ex:3} is the reasoning that links the receiver
+to the register bank you build next. Design the module from the specification in its section.
+
+\textbf{How to check your work.} Check the module with the provided testbench, run from \file{hw/};
+the preface's \emph{Setting up} has the full flow.
+
+The answers to every part that is not code are in \secref{sol:c4}. Try each part before you read its
+answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{fifo}}{VHDL}
+\label{c4:ex:1}
+
+\xpart{a} Write your own \code{fifo.vhd} from the specification in \secref{c4:sec:fifo} and run its
+testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd fifo.vhd fifo_tb.vhd
+ghdl -e --std=93 fifo_tb
+ghdl -r --std=93 fifo_tb --assert-level=error
+\end{shell}
+
+\xpart{b} The testbench pushes a fifth byte into a full depth-4 FIFO and checks it is dropped.
+Remove the \code{not full} guard on writes and re-run. What does the run report, and what has your
+FIFO done to \code{count} and to the \code{head} and \code{tail} pointers to cause it? Note that the
+answer depends on how you declared \code{count}: constrained as \code{natural range 0 to DEPTH}, the
+fifth push drives it out of range and GHDL stops on a bound check before any assertion runs; left as
+an unconstrained \code{natural}, the count simply passes \code{DEPTH} and it is the testbench's own
+check that fires. Both are failures, but only one of them is the testbench talking. Put the guard
+back.
+
+\xpart{c} \code{rdata} shows the front entry with no \code{rd}; \code{rd} only advances. Explain
+why the RX path you will build in \chapref{5} needs exactly this ``look, then advance'' split rather
+than a single ``read-and-pop'' operation.
+
+\xpart{d} Both FIFOs in the finished peripheral are depth 8. Suppose software is slow and the
+receiver delivers bytes faster than software reads them. At depth 8, how many back-to-back frames
+can arrive before a byte is lost, and what flag would tell software it happened?
+
+% ------------------------------------------------------------------------------------------
+\exercise{The receive path in \code{uart_top}}{VHDL}
+\label{c4:ex:2}
+
+\xpart{a} Add the receive path to the \code{uart_top} skeleton, which this time is two
+instantiations rather than one: \code{sync} on the \code{rx} pin, then \code{uart_rx} behind it,
+reading \code{rx_s2} rather than \code{rx}. The signals this step adds:
+
+\begin{booktable}{@{}p{5.6em}p{15.2em}p{8.4em}L@{}}
+  \thead{Signal} & \thead{Type} & \thead{Driven by} & \thead{Read by} \\
+  \midrule
+  \code{rx_vec} & \code{std_logic_vector(0 downto 0)} & the \code{rx} pin, in the adapter below &
+    \code{sync} \\
+  \code{rx_vec_s2} & \code{std_logic_vector(0 downto 0)} & \code{sync} & the adapter below \\
+  \code{rx_s2} & \code{std_logic} & the adapter below & \code{uart_rx} \\
+  \code{rx_byte} & \code{std_logic_vector(7 downto 0)} & \code{uart_rx} & \code{uart_regs}
+    (\chapref{5}) \\
+  \code{rx_push} & \code{std_logic} & \code{uart_rx}'s \code{valid} & \code{uart_regs}
+    (\chapref{5}) \\
+  \code{frame_err} & \code{std_logic} & \code{uart_rx} & \code{uart_regs} (\chapref{5}) \\
+\end{booktable}
+
+\modulefigure{sync}
+
+\noindent\code{COUNT} defaults to 1, so this instance needs no generic map --- but it does work on
+vectors, which is why the two one-element vectors above exist.
+
+\begin{booktable}{@{}rp{6.4em}p{1.8em}p{17.6em}L@{}}
+  \thead{\#} & \thead{\code{sync} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{async_in} & in & \code{std_logic_vector(COUNT-1 downto 0)} & \code{rx_vec} \\
+  4 & \code{sync_out} & out & \code{std_logic_vector(COUNT-1 downto 0)} & \code{rx_vec_s2} \\
+\end{booktable}
+
+\begin{vhdlcode}
+-- Cross the rx pin into the clock domain, once, in the module that owns the pin.
+sync: entity work.sync
+    port map(clock, reset_s2_n, rx_vec, rx_vec_s2);
+
+-- sync works on vectors, so the single rx bit goes in and comes back out
+-- through one.
+rx_vec(0) <= rx;
+rx_s2     <= rx_vec_s2(0);
+\end{vhdlcode}
+
+\modulefigure{uart_rx}
+
+\begin{booktable}{@{}rp{6.4em}p{1.8em}p{15.2em}L@{}}
+  \thead{\#} & \thead{\code{uart_rx} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{baud_tick} & in & \code{std_logic} & \code{baud_tick}, the same tick \code{uart_tx}
+    uses \\
+  4 & \code{rx_s2} & in & \code{std_logic} & \code{rx_s2}, \textbf{not} the \code{rx} pin \\
+  5 & \code{data_out} & out & \code{std_logic_vector(7 downto 0)} & \code{rx_byte} \\
+  6 & \code{valid} & out & \code{std_logic} & \code{rx_push} \\
+  7 & \code{frame_err} & out & \code{std_logic} & \code{frame_err} \\
+\end{booktable}
+
+\begin{vhdlcode}
+-- Recover bytes from the synchronized line. Its valid output is the RX FIFO's
+-- push strobe, so it binds straight to rx_push: that side needs no feeder,
+-- unlike the transmit side in L05.
+uart_receiver: entity work.uart_rx
+    port map(clock, reset_s2_n, baud_tick, rx_s2, rx_byte, rx_push, frame_err);
+\end{vhdlcode}
+
+\noindent The order matters and is the point of the exercise: the pin crosses into the clock domain
+once, in the module that owns the pin, and everything downstream of that is ordinary synchronous
+logic. Binding \code{rx} straight to port 4 would analyze --- both are \code{std_logic} --- and would
+sample an asynchronous pin directly, which is the metastability bug the synchronizer of \chapref{3}
+exists to prevent.
+
+Both \code{rx_byte} and \code{rx_push} are read by nothing until \chapref{5}, so nothing yet consumes
+what the receiver produces. That is expected: an output with no reader analyzes and elaborates fine.
+The FIFO from Exercise~\ref{c4:ex:1} is not instantiated here either: it belongs to the register
+bank that owns it, which arrives in \chapref{5}.
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd sync.vhd uart_tx.vhd \
+     uart_rx.vhd spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd
+\end{shell}
+
+\noindent The top still analyzes and the system testbench is still skipped; only \code{uart_regs} is
+missing now.
+
+% ------------------------------------------------------------------------------------------
+\exercise{Overrun belongs to the register bank}{Reasoning}
+\label{c4:ex:3}
+\code{uart_rx} reports a \emph{framing} error but never an \emph{overrun}: a second byte arriving
+before the first was read.
+
+\xpart{a} Explain why \code{uart_rx}, on its own, cannot detect an overrun. What single piece of
+information does it lack?
+
+\xpart{b} In \chapref{5} the RX FIFO's \code{full} flag is what would make overrun detectable: a
+\code{valid} byte arriving while the FIFO is full is dropped. Sketch, in words, the extra flag you
+would add so software could tell that a byte was lost, and say which register it would live in (see
+\code{ERROR_FLAGS} in Part~2 of the protocol, \secref{proto:part2}).
+
+\xpart{c} A framing error and an overrun have different causes. Give a physical cause for each:
+what on the wire, or in the software's timing, produces one but not the other?

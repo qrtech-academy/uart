@@ -1,0 +1,135 @@
+% Section 10.4, from lectures/L10/appendix/c_bringup.md.
+
+\section{Bringing Up the Bench}
+\label{c10:sec:exercises}\label{c10:app:c}
+
+\begin{aside}
+\textbf{How to work these.} This is the bench work that ends the book: the DE0-CV, the Nano, a level
+shifter and a USB-serial adapter, wired into one working node. The hardware is listed in the
+preface's \emph{Setting up}. Read \secref{c10:sec:bench} first: it explains the two links, the level
+shifting, and why the bring-up ladder climbs one rung at a time. \code{app::EchoNode}
+(Exercise~\ref{c10:ex:b1}) should already be written and passing its host test.
+
+\textbf{How to check your work.} The bench is the check: every rung of the ladder has an observable
+outcome, and the first one that misbehaves names the layer at fault. The answers to the parts that
+are not bench work are in \secref{sol:c10}.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{Assemble the bench}{Bench}
+\label{c10:ex:c1}
+Wire it with everything \textbf{powered off}, and have the wiring checked before applying power. A
+single 5\,V line into a 3.3\,V FPGA pin can damage it.
+
+\textbf{The control plane (SPI), through the level shifter.} The Nano's SPI pins are fixed; the
+DE0-CV signals are the GPIO-header pins assigned in \file{uart_board.vhd}.
+
+\begin{narrowtable}{@{}llll@{}}
+  \thead{Signal} & \thead{Nano} & \thead{Level shifter} & \thead{DE0-CV} \\
+  \midrule
+  \code{SCK} & D13 (PB5) & HV to LV & \code{sclk} \\
+  \code{MOSI} & D11 (PB3) & HV to LV & \code{mosi} \\
+  \code{MISO} & D12 (PB4) & LV to HV & \code{miso} \\
+  \code{SS}, the chip select & D10 (PB2) & HV to LV & \code{ss} \\
+  5\,V reference & 5V & HV & --- \\
+  3.3\,V reference & --- & LV & 3.3\,V \\
+  GND & GND & GND (both sides) & GND \\
+\end{narrowtable}
+
+\textbf{The data plane (UART), 3.3\,V direct}, with no shifter, since the adapter is set to 3.3\,V
+logic. The \code{tx}/\code{rx} crossover is the usual one.
+
+\begin{narrowtable}{@{}lll@{}}
+  \thead{Signal} & \thead{DE0-CV} & \thead{USB-serial adapter} \\
+  \midrule
+  The peripheral's \code{tx} & \code{tx} & RX \\
+  The peripheral's \code{rx} & \code{rx} & TX \\
+  GND & GND & GND \\
+\end{narrowtable}
+
+The adapter's USB goes to the PC, where a terminal at 115200~8N1 is the far end of the data plane.
+
+% ------------------------------------------------------------------------------------------
+\exercise{Program the FPGA and flash the Nano}{Bench}
+\label{c10:ex:c2}
+Two chips, two toolchains, both of which you have already used. For the \textbf{DE0-CV},
+re-synthesize \file{uart_board.vhd}, the provided Quartus top level wrapping your \code{uart_top},
+and program the FPGA over USB-Blaster exactly as in \chapref{9}; confirm that the design fits and
+that the pin assignments match the wiring table above. For the \textbf{Nano}, flash the ATmega
+firmware:
+
+\begin{shell}
+make -C fw/avr flash        # avr-gcc + avrdude; see fw/README.md
+\end{shell}
+
+\noindent With both programmed and the bench wired, you are ready to climb the ladder.
+
+% ------------------------------------------------------------------------------------------
+\exercise{Climb the bring-up ladder}{Bench}
+\label{c10:ex:c3}
+Climb one rung at a time and \textbf{stop at the first that misbehaves}; that rung names the layer at
+fault (\secref{c10:sec:ladder} explains why).
+
+\xpart{a}\parttitle{Data-plane pin loopback.} This is the loopback you already ran on the board alone
+in \chapref{9}. In \file{uart_board.vhd}, temporarily wire the board's UART receive pin straight back
+out to its transmit pin, bypassing \code{uart_top} altogether, and re-synthesize. Type in the PC
+terminal; every character should come straight back. None of your logic is in this path, and that is
+the point: it proves the USB-serial adapter, its 3.3\,V logic levels, the two data-plane wires, and the FPGA pin
+assignment, and it proves nothing else, because nothing else is in the circuit yet. Note what it
+cannot prove: the terminal's baud and frame settings. The adapter sends and receives at the same
+settings, so a loopback agrees with itself at any rate; they are first on trial in rung d. Fix any problem here before going further, since every later
+rung depends on this one.
+
+\xpart{b}\parttitle{The control plane.} Restore the wrapper. Flash a bring-up \code{main()} that does
+nothing but write \code{BAUD_DIV} over SPI and read it straight back, comparing the two values. A
+matching read-back is the first evidence that the whole control plane works: the level shifter on all
+four SPI lines, \code{AvrSpi}'s register setup, the provided \code{spi_slave} and
+\code{spi_reg_bridge}, and your register bank's read path. This rung has to come before any rung
+that uses the peripheral, because until \code{BAUD_DIV} is written the divider reads zero and
+\code{uart_top} substitutes 1, so a byte written to \code{TX_DATA} would leave at 50\,MHz / 16 =
+3.125\,Mbaud --- transmitted, but at a rate nothing on the bench can decode --- and the only route to
+a usable \code{BAUD_DIV} is SPI. A crossed, unshifted or floating SPI line surfaces here and nowhere
+earlier.
+
+\xpart{c}\parttitle{The peripheral, looped back on itself.} Wire the peripheral's own \code{tx} to
+its own \code{rx} in the wrapper, exactly as \code{uart_top_tb} does in simulation, and
+re-synthesize. Have the bring-up \code{main()} configure the peripheral, write a byte to
+\code{TX_DATA}, then poll \code{STATUS} and read \code{RX_DATA} back. The same byte coming back
+proves the entire datapath on real silicon: \code{baud_gen}, \code{uart_tx}, \code{uart_rx}, both
+FIFOs and the register bank, running at an actual 50\,MHz rather than a simulated one. The PC
+terminal is not involved at all, so a failure here is the FPGA and not the link.
+
+\xpart{d}\parttitle{The real data plane.} Undo the loopback and wire \code{tx} and \code{rx} to the
+USB-serial adapter. Repeat the send and the receive from rung c, but against the terminal this time:
+a byte the driver writes should appear in the terminal, and a character you type should come back
+through \code{RX_DATA}. This adds the one thing rung c could not, which is the peripheral talking to a
+\emph{different} device, with two independently generated baud rates that now have to agree with
+each other.
+
+\xpart{e}\parttitle{\code{app::EchoNode}.} Flash the echo application you wrote and host-tested in
+Exercise~\ref{c10:ex:b1}: \code{main()} constructs a \code{Uart} over \code{AvrSpi},
+\code{configure()}s it for 115200~8N1, and calls \code{node.run(stop)}. What you type in the terminal
+is received by the driver over SPI and echoed back out the peripheral's \code{tx}, one byte crossing
+every layer. Because the class was already proven on the host, anything that fails at this rung is
+the wiring or the link, not the echo logic.
+
+% ------------------------------------------------------------------------------------------
+\exercise{Trace a byte}{Reasoning}
+\label{c10:ex:c4}
+The closing exercise, and the book's summary. Take a single character typed in the terminal and
+trace it through \textbf{every} layer, out and back, naming each module and the chapter that built
+it.
+
+It travels in on the data plane, from the PC terminal to the USB-serial adapter to the DE0-CV's
+\code{rx} pin, through \code{sync} into \code{uart_rx} (both \chapref{3}), then the RX FIFO
+(\code{fifo}, \chapref{4}) inside \code{uart_regs} (\chapref{5}). It then crosses the control plane,
+out through \code{spi_reg_bridge} and \code{spi_slave} (provided) to \code{AvrSpi} (\chapref{9}), up
+through \code{readReg} and \code{Uart} (\chapref{7}), and into \code{EchoNode} (\chapref{10}).
+Finally it goes back out, from \code{writeBlocking()} (\chapref{8}) and \code{Uart::write()} to
+\code{writeReg()} to \code{AvrSpi}, back across \code{spi_slave} and \code{spi_reg_bridge} into
+\code{uart_regs} and the TX FIFO, through the TX feeder in \code{uart_top} (\chapref{5}) and
+\code{uart_tx} (\chapref{2}) to the DE0-CV's \code{tx} pin, and back via the adapter to the terminal.
+
+Name each place the byte changes representation (a UART frame on the wire, a register field over
+SPI, a \code{uint8_t} in the driver), and you have described the whole FPGA-meets-MCU stack the book
+built.

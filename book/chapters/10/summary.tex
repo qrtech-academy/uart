@@ -1,0 +1,42 @@
+% Section 10.3, from lectures/L10/README.md: the objectives, the evaluation questions, and the course
+% review.
+
+\section{Review}
+\label{c10:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Write \code{app::EchoNode}} against the driver interface and host-test it on the
+    UART stub of \chapref{6} with no hardware, then bring it up as the final rung of the ladder.
+  \item \textbf{Wire the two-link bench correctly}, level shifter included, and explain what each
+    SPI line and each UART line carries.
+  \item \textbf{Climb the bring-up ladder methodically} and state what each rung establishes that
+    the previous one cannot.
+  \item \textbf{Explain what an integration test catches that no host test can}, and where the top
+    of the test pyramid sits for this system.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item The real-data-plane rung (d) works but the EchoNode rung (e) does not: which layer is
+    implicated, and which layers has the ladder already cleared?
+  \item Rung c loops \code{tx} back to \code{rx} on the board and passes, yet rung d fails against
+    the terminal: what does that isolate, given that the peripheral's own datapath is common to
+    both?
+  \item What does the control-plane rung (b) prove that a passing \code{uart_top_tb} in simulation
+    did not?
+  \item If one SPI line is left unshifted, wired 5\,V straight to a 3.3\,V pin, what is the likely
+    symptom, and which rung exposes it first?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Course review}
+The pattern you have just completed --- a peripheral in VHDL, a driver in C++, one shared register
+contract, integrated across a real chip boundary --- is the whole FPGA-meets-MCU method. The same
+method scales to far harder protocols, and the SPI transport this book handed you as a black box is
+itself built from the wire up two courses later, in \emph{SPI: The MCU-FPGA Transport, from the Wire
+Up}.

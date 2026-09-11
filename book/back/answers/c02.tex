@@ -1,0 +1,162 @@
+% Section B.2: the answers to the parts of lectures/L02/appendix/c_exercises.md that are not code.
+% Every testbench message quoted was produced by a design built to Chapters 1 to 5 and broken in
+% exactly the way the part describes.
+
+\section{Chapter 2: UART Framing and the Transmitter}
+\label{sol:c2}
+The modules themselves are code: \code{baud_gen} and \code{uart_tx} in the a) parts of
+Exercises~\ref{c2:ex:1} and~\ref{c2:ex:2}, checked by \code{baud_gen_tb} and \code{uart_tx_tb};
+their instantiation into \code{uart_top} in Exercise~\ref{c2:ex:2} f), checked by a clean analysis
+now and by \code{uart_top_tb} in \chapref{5}; and the parity and second stop bit of
+Exercise~\ref{c2:ex:3} a), checked by your own testbench case.
+
+\solution{c2:ex:1}{\code{baud_gen}}
+\ans{b} \code{div = 50000000 / (16 * 115200) = 27.13}, which rounds to \textbf{27}, the value in the
+protocol's table (\secref{proto:baud}). One bit is then $16 \times 27 = 432$ clocks, 8.64\,µs,
+which is 115740.7~baud, 0.47\,\% fast.
+
+The divide is by \code{16 * baud} because the receiver cannot see where a bit begins, so it samples
+the line sixteen times per bit, and the transmitter and the receiver share the one time base.
+\code{uart_rx} (\chapref{3}) spends the sixteen ticks: it detects the start edge on one of them,
+counts to the middle of the start bit to re-check it, and then counts sixteen per bit to land each
+later sample in the middle of its bit. \code{uart_tx} simply holds each bit for sixteen ticks. A
+generator dividing by \code{baud} alone would give the transmitter everything it needs and leave the
+receiver nothing to find the middle of a bit with.
+
+\ans{c} The testbench passes with \code{counter = div - 1}. The counter reloads to zero on the very
+edge it reaches \code{div - 1}, so with a constant \code{div} it never passes the threshold, and
+``has reached'' and ``is at least'' are the same test: both fire exactly when the counter is 3.
+
+They part company only when the counter is already past the threshold, and a \code{div} of zero is
+the extreme case, since \code{div - 1} is then $-1$. With \code{>=}, every counter value is at least
+$-1$, so \code{tick} is high on every clock and the counter stays at zero. With \code{=}, the
+counter is never $-1$, so it never reloads: \code{tick} never rises, and the counter climbs until
+its next increment leaves its declared range. Simulated with \code{div} forced to zero, the
+\code{>=} version ticked on 99 of the first 100 clocks, and the \code{=} version never ticked and
+stopped after 65536 clocks with
+
+\begin{console}
+ghdl:error: bound check failure at baud_gen.vhd:22
+\end{console}
+
+\noindent so \code{>=} is the one that keeps the counter inside its range. (In hardware the counter
+would wrap silently instead, and still never tick.) In this design a zero cannot actually reach the
+port, since \code{div} is \code{natural range 1 to 65535}: that is why \code{uart_top} substitutes
+1 for a zero \code{BAUD_DIV}, and the robustness of \code{>=} is a second line of defence. It also
+covers the case the range does allow, a \code{div} lowered while the counter is above the new
+threshold: \code{>=} reloads on the next edge, \code{=} counts on to the top of its range first.
+
+\ans{d} Both \code{uart_tx} and \code{uart_rx} count ticks, and both are synchronous: each looks at
+\code{baud_tick} only inside \code{rising_edge(clock)}. A tick decoded combinationally from the
+registered counter is still exactly one clock wide, because the counter holds \code{div - 1} for
+exactly one clock. A glitch on it between edges, while the counter's bits change, is invisible to
+both consumers as long as it has settled by the next edge, which is ordinary timing closure. So a
+glitchy tick would not break them.
+
+A \emph{wider} tick would. Every clock on which \code{baud_tick} is high counts as one sixteenth of
+a bit, so a tick two clocks wide advances \code{uart_tx}'s \code{ticks} counter twice per period:
+bits come out half as long as they should, and \code{uart_rx} samples at the wrong points. The
+registered output is the design that makes ``one clock wide'' true by construction. A glitch would
+matter only where \code{tick} is used as a clock or crosses into another clock domain, and it is
+neither here.
+
+\solution{c2:ex:2}{\code{uart_tx}}
+\ans{b} The testbench stops at the first data bit:
+
+\begin{console}
+uart_tx_tb: data bit 0 mismatch!
+\end{console}
+
+\noindent \code{0x53} is \code{0101_0011}, so least significant first the data bits go out as
+\code{1, 1, 0, 0, 1, 0, 1, 0}. Packed most significant first they go out as
+\code{0, 1, 0, 1, 0, 0, 1, 1}: the first bit on the line is \code{data(7)}, a \code{0}, where the
+testbench expects \code{data(0)}, a \code{1}. That is the byte shifted the other way, \code{0xCA}.
+
+\ans{c} The testbench passes. \code{0xA5} is \code{1010_0101}. Least significant first, the eight data
+levels are \code{1, 0, 1, 0, 0, 1, 0, 1}; most significant first they are
+\code{1, 0, 1, 0, 0, 1, 0, 1} as well, because the byte reads the same in both directions, so the two
+packings put the same ten levels on the line and a check of the levels cannot tell them apart.
+
+For the check to be able to fail, the byte must \textbf{not be a bit-reversal palindrome}: its bit
+$i$ must differ from its bit $7 - i$ for at least one $i$. A palindrome fixes the top four bits by
+the bottom four, so there are $2^4 = 16$ of them, and those 16 lack the property: \code{0x00},
+\code{0x18}, \code{0x24}, \code{0x3C}, \code{0x42}, \code{0x5A}, \code{0x66}, \code{0x7E},
+\code{0x81}, \code{0x99}, \code{0xA5}, \code{0xBD}, \code{0xC3}, \code{0xDB}, \code{0xE7} and
+\code{0xFF}.
+
+\code{uart_rx_tb} sends \code{0x53} and \code{0x2D}, neither a palindrome, and \code{uart_top_tb}
+sends \code{0x53}, so each constant is good. A loopback still cannot catch the two halves reversed
+\emph{together}, however good its constant: a transmitter that sends \code{data(7)} first and a
+receiver that stores the first bit it gets in bit 7 undo each other exactly, and the byte that
+comes back is the byte that went in. With both halves reversed, \code{uart_top_tb} reports that it
+passed. With either half reversed alone it fails with
+
+\begin{console}
+uart_top_tb: received byte mismatch, expected 0x53, got 0xCA!
+\end{console}
+
+\noindent and the receiver reversed alone fails its own testbench with the same message from
+\code{uart_rx_tb}. Each unit testbench compares its module with the protocol, a fixed wire order,
+rather than with the other module, so each catches its own half, and together they catch the pair
+the loopback cannot.
+
+\ans{d} \code{busy} is a level that is true for the whole frame, so it answers ``may another byte be
+loaded now?'', which is the feeder's whole question; it is also half of \code{STATUS}'s TX-idle bit.
+\code{done} is a one-clock event at the moment the stop bit ends, so it can count frames or raise a
+transmit-complete interrupt exactly once per frame, which a level can only do with an edge detector
+of its own.
+
+A feeder that loaded on \code{done} instead of on \code{not busy} would never send anything:
+\code{done} only pulses at the end of a frame, and no frame starts until something is loaded, so the
+first byte waits for an event that only a sent byte can produce. Built that way, \code{uart_top_tb}
+reports
+
+\begin{console}
+uart_top_tb: timed out waiting for RX valid!
+\end{console}
+
+\noindent because the byte written to \code{TX_DATA} never leaves the FIFO. Even with a first load
+forced some other way, a one-clock pulse is the wrong thing to gate on: miss it, because the FIFO
+was empty in that one clock and a byte arrived a cycle later, and that byte waits for a frame that
+will never end.
+
+\ans{e} \code{frame <= '1' & data & '0'} puts the leftmost item in the highest bit, so
+
+\begin{narrowtable}{@{}lcccccccccc@{}}
+  \thead{\code{frame} index} & 9 & 8 & 7 & 6 & 5 & 4 & 3 & 2 & 1 & 0 \\
+  \midrule
+  \thead{Bit} & stop & \code{d7} & \code{d6} & \code{d5} & \code{d4} & \code{d3} & \code{d2} &
+    \code{d1} & \code{d0} & start \\
+  \thead{Value} & \code{1} & & & & & & & & & \code{0} \\
+\end{narrowtable}
+
+\noindent Read from index 0 upward, that is the start bit, then \code{d0}, \code{d1} and so on to
+\code{d7}, then the stop bit: exactly the wire order of an 8N1 frame. The caller may change
+\code{data} on the very next cycle because \code{frame} is a register of the transmitter's own,
+loaded once, in \code{STATE_IDLE}, on the edge that sees \code{start}. From then on every bit on the
+line comes from \code{frame}, and \code{data} is not read again until the next \code{start} in the
+next idle period. In \code{uart_top} that is what lets the FIFO advance on the same edge the
+transmitter loads.
+
+\solution{c2:ex:3}{Parity and a second stop bit}
+\ans{b} The stop field, which is now one or two bits long. (With the parity bit of part a), the
+parity field is present or absent too, so the frame is 10, 11 or 12 bits; the start bit and the
+eight data bits never change.) At a fixed baud rate the frame time is the number of bits over the
+baud rate, so a second stop bit makes every frame one bit period longer, 11 instead of 10: at
+115200~baud that is 95.5\,µs instead of 86.8\,µs, and the throughput falls by a tenth,
+from 11520 to 10473 bytes per second.
+
+\ans{c} \code{uart_tx_tb} binds positionally and names eight ports, so it binds the eight existing
+ones and leaves the three new inputs, declared after them, at their defaults of \code{'0'}. With
+\code{parity_en} and \code{two_stop} low the frame is the old 8N1 frame, bit for bit, and the
+testbench passes unchanged. (Declared anywhere else, or without a default, a new input shifts or
+breaks the positional binding, and the testbench no longer analyzes against the module.)
+
+To pin down even parity, drive \code{parity_en = '1'} and \code{parity_odd = '0'}, send \code{0x53},
+and after the eight data bits sample one more bit centre: expect \code{'0'}, because \code{0x53}
+has four 1s, already an even number. Then sample one bit later and expect the stop bit's
+\code{'1'}. The choice of a byte whose parity bit is \code{'0'} is deliberate: a transmitter that
+forgot to insert the parity bit would put its stop bit, a \code{'1'}, in that position, and one that
+computed odd parity would send a \code{'1'} too, so both fail. Add a second byte of odd weight, such
+as \code{0x52} with three 1s, and expect a \code{'1'}, so that a parity bit stuck at \code{'0'}
+fails as well.

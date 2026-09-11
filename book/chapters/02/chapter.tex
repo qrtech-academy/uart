@@ -1,0 +1,62 @@
+% Chapter 2, typeset from lectures/L02: the README is the opener and the closing review, and each
+% appendix is a section, in the same order and with the same subsections.
+
+\chapter{UART Framing and the Transmitter}
+\label{c2:ch}
+
+{\large\itshape The wire, and the easy direction first.\par}
+
+\begin{chapterbox}{In this chapter}
+\begin{itemize}
+  \item \textbf{UART framing itself}: the idle-high line, the start bit, eight data bits sent least
+    significant first, optional parity, and one or two stop bits, and how a baud rate maps to a bit
+    period. The line protocol (\secref{proto:part1}) fixes the default 8N1 frame and the
+    \code{BAUD_DIV} divider taken from the 50\,MHz system clock.
+  \item \textbf{The baud-rate generator}, which emits one enable tick at \code{16 x baud}, so that
+    the transmitter written here and the receiver written in \chapref{3} share a single time base
+    rather than each keeping its own.
+  \item \textbf{\code{baud_gen.vhd} and then \code{uart_tx.vhd}}, each verified against its provided
+    testbench.
+\end{itemize}
+\end{chapterbox}
+
+This chapter works from the wire up. After it you should be able to draw a \code{tx} waveform for a
+given byte, baud rate and frame format, and mark the bit boundaries on it; explain why the
+transmitter needs a baud tick at \code{16 x baud} rather than at the baud rate itself, given that
+the receiver of \chapref{3} oversamples; and implement a transmitter state machine that loads,
+shifts and frames, with correct \code{busy} and \code{done} timing, verified against a provided
+testbench.
+
+\textbf{Before you start}, you need \chapref{1}, where \code{uart_def} and the \code{uart_top}
+skeleton were built; \code{baud_gen} and \code{uart_tx} are the first two blocks you instantiate
+into that top. From digital design with VHDL the chapter assumes \code{entity} and
+\code{architecture}, clocked processes, state machines, and running a provided self-checking
+testbench with GHDL. Read the UART line protocol (\secref{proto:part1}) first.
+
+Read \secref{c2:sec:baud_gen} for \code{baud_gen} and \secref{c2:sec:uart_tx} for \code{uart_tx};
+these are the specifications you build the two modules from. Then read the provided testbenches,
+\file{hw/baud_gen_tb.vhd} and \file{hw/uart_tx_tb.vhd}, which are the executable form of this
+chapter's contract and whose case comments each state what a failure means. Confirm your GHDL
+install beforehand by running an existing testbench from your digital design course.
+
+Each module is run against its testbench as it lands, \code{baud_gen} first:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 baud_gen.vhd baud_gen_tb.vhd
+ghdl -e --std=93 baud_gen_tb
+ghdl -r --std=93 baud_gen_tb --assert-level=error
+\end{shell}
+
+\noindent Then both are instantiated into the \code{uart_top} skeleton from \chapref{1}, so the top
+now drives \code{tx}. The system testbench still waits for the receiver and the register bank.
+
+In the exercises in \secref{c2:sec:exercises} you build \code{baud_gen} and \code{uart_tx} from
+\secref{c2:sec:baud_gen} and \secref{c2:sec:uart_tx} (Exercises~\ref{c2:ex:1} and~\ref{c2:ex:2}),
+instantiate them into \code{uart_top}, and then extend the transmitter with parity and a second
+stop bit (Exercise~\ref{c2:ex:3}).
+
+\input{chapters/02/baud_gen}
+\input{chapters/02/uart_tx}
+\input{chapters/02/summary}
+\input{chapters/02/exercises}

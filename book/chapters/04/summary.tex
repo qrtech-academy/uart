@@ -1,0 +1,39 @@
+% Section 4.2, from lectures/L04/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c4:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Build a synchronous FIFO} with a look-then-advance read, and explain why that split
+    is what lets \chapref{5} keep \code{RX_DATA} a pure read.
+  \item \textbf{Say what \code{full} and \code{empty} guard}, and what a write to a full FIFO or a
+    read from an empty one must do instead of wrapping the pointers past each other.
+  \item \textbf{Instantiate the receive path into \code{uart_top}} in the right order, with the
+    synchronizer on the pin and the receiver behind it, and explain why binding \code{rx} straight
+    to \code{uart_rx} would analyze cleanly and still be wrong.
+  \item \textbf{Explain what an overrun is}, why the receiver cannot detect one on its own, and
+    which block has the one piece of information that makes it detectable.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item \code{rdata} shows the front entry with no \code{rd} at all. What would break in the
+    \code{RX_DATA} and \code{RX_POP} split of \chapref{5} if the FIFO instead popped on every read?
+  \item A write arrives while the FIFO is full. What must happen to \code{wdata}, to \code{head} and
+    to \code{count}, and what tells the caller it happened?
+  \item What is an overrun, why can the receiver not detect one on its own, and which block would
+    have to do it instead?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+In \chapref{5} ports become registers: poll-able \code{STATUS} bits, sticky error flags, a
+write-triggered TX push, the read-then-pop RX path over two of the FIFOs you just built, and
+completing \code{uart_top} behind the provided SPI transport, so that the system testbench finally
+runs.

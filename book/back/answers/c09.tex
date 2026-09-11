@@ -1,0 +1,208 @@
+% Section B.9, from lectures/L09/appendix/c_exercises.md: every part that is not code. The outcomes
+% quoted were measured on a reference build of the whole stack made to the chapters'
+% specifications: the host suites over the mocked register file, and the avr-gcc 7.3.0 image and
+% its disassembly.
+
+\section{Chapter 9: The Real Transport, and Both Toolchains}
+\label{sol:c9}
+The code in this chapter is \code{AvrSpi} (Exercise~\ref{c9:ex:1} a), checked by the provided
+suite \file{fw/test/transport/avr_spi_test.cpp} over the mocked register file, and the bring-up
+\code{main} and the logging (Exercise~\ref{c9:ex:2} a and Exercise~\ref{c9:ex:3} a), which the
+bench checks. Everything else is answered here.
+
+% ------------------------------------------------------------------------------------------
+\solution{c9:ex:1}{\code{AvrSpi}}
+\ans{b} \code{SPDR} holds the incoming byte only once all eight bits have been shifted, eight
+\code{SCK} periods after the write, which at f\textsubscript{osc}/16 is 128 CPU cycles, and
+\code{SPIF} is the only thing that says that moment has come: read earlier and you get a stale
+byte, write the next byte earlier and you collide with the transfer still in progress.
+
+The spin is cheaper than it looks. Compiled, the whole of \code{transfer()} is six instructions,
+and the wait is a four-cycle loop that goes round about thirty times per byte:
+
+\begin{console}
+out  0x2e, r22      ; SPDR = byte: the transfer starts
+in   r0, 0x2d       ; read SPSR
+sbrs r0, 7          ; SPIF set? skip the jump
+rjmp .-6            ; not yet: read SPSR again
+in   r24, 0x2e      ; return SPDR
+ret
+\end{console}
+
+\ans{c} If \code{SS} (PB2) is an input and something drives it low while \code{MSTR} is set, the
+SPI peripheral concludes that another master has taken the bus and gets out of its way:
+\textbf{it clears \code{MSTR} in \code{SPCR}}, demoting itself to a slave, and sets \code{SPIF},
+raising the SPI interrupt if one is enabled. The ATmega328P has no separate mode-fault flag;
+\code{MSTR} reading back as 0 is the only record of what happened.
+
+For \code{AvrSpi} that is two failures in a row. The \code{transfer()} in progress sees \code{SPIF}
+and returns whatever is in \code{SPDR}. Every \code{transfer()} after it writes \code{SPDR} as a
+slave, where nothing is driving \code{SCK}, so \code{SPIF} never sets again and the poll spins for
+ever: the driver hangs in the first transaction after the glitch, and nothing sets \code{MSTR} back.
+Making PB2 an output removes the possibility, and costs nothing, because the transport drives that
+pin as the chip select anyway.
+
+\ans{d} It returns the byte the \emph{previous} transfer received, still sitting in \code{SPDR}'s
+receive buffer, or whatever was there after reset if there was no previous transfer. The new byte
+does not exist yet: it arrives eight \code{SCK} periods later, 8\,\textmu s or 128 CPU cycles after
+the write, and the read happens one cycle after it. Every reply is therefore shifted by one byte,
+so a \code{readReg} assembles the command byte's reply and three data bytes instead of four.
+
+On the part it is worse than a shift. The next \code{transfer()} writes \code{SPDR} a few cycles
+later, while the byte before it is still shifting, which the datasheet calls a write collision:
+\code{WCOL} is set and the write is \emph{ignored}, so most of the bytes of a transaction never
+leave the master at all, and the five-byte transaction is garbled in both directions.
+
+The mock makes the same point more bluntly. It completes a transfer only when the driver reads
+\code{SPSR}, so with the poll gone no transfer ever completes and every read of \code{SPDR} returns
+the value left from reset. Three cases go red, and only these three:
+
+\begin{console}
+Test case AvrSpi.TransferExchangesByte failed: EXPECT_EQ(rx, miso) failed: 0 != 205
+Test case AvrSpi.TransferIsFullDuplexInOrder failed: EXPECT_EQ(spi.transfer(mosi[i]), miso[i])
+  failed: 0 != 170
+Test case AvrSpi.DrivesTheDriverEndToEnd failed: EXPECT_EQ(uart.status(), data) failed:
+  0 != 305419896
+19 out of 22 test cases succeeded!
+\end{console}
+
+\noindent Every \code{Uart} case stays green, because those run over the scripted
+\code{transport::Stub}, not over \code{AvrSpi}: the bug is below the seam, and so is the only suite
+that can see it.
+
+% ------------------------------------------------------------------------------------------
+\solution{c9:ex:2}{The freestanding bring-up \code{main}}
+\ans{b} Not the provided demo itself: \file{source/main.cpp} was written in the AVR-portable
+subset, and it compiles and links unchanged with the \file{fw/avr} flags, into 1256 bytes of flash
+and 34 of RAM. It needs none of the idioms a freestanding build removes: its objects are automatic,
+with fixed arrays inside; the driver reports failure with a \code{bool}; and it prints nothing.
+
+It is the idioms of ordinary host C++ that fail, and each has a replacement on the AVR:
+
+\begin{booktable}{@{}p{10.6em}p{11.4em}L@{}}
+  \thead{Host idiom} & \thead{In the AVR build} & \thead{What replaces it} \\
+  \midrule
+  \code{#include <cstdint>}, \code{std::uint8_t} & Does not compile: avr-libc has no C++ library,
+    so \code{fatal error: cstdint: No such file or directory} & \code{<stdint.h>} and the bare
+    \code{uint8_t} \\
+  \code{new}, \code{std::make_unique}, \code{std::vector} & No \code{operator new}, and no standard
+    containers & Static and automatic storage, sized at compile time \\
+  \code{throw}, \code{try} & Rejected under \code{-fno-exceptions} & Return values, as
+    \code{write()} returning \code{false} \\
+  \code{dynamic_cast}, \code{typeid} & Rejected under \code{-fno-rtti} & Virtual dispatch through
+    an interface \\
+  \code{std::cout}, \code{printf} to a console & No iostreams, and no console & Bytes written to the
+    ATmega's own USART, as in Exercise~\ref{c9:ex:3} \\
+\end{booktable}
+
+\ans{c} With the reference firmware, the linker reports one symbol, three times:
+
+\begin{console}
+In function `app::EchoNode::~EchoNode()':
+  undefined reference to `operator delete(void*, unsigned int)'
+In function `driver::transport::AvrSpi::~AvrSpi()':
+  undefined reference to `operator delete(void*, unsigned int)'
+In function `driver::uart::Uart::~Uart()':
+  undefined reference to `operator delete(void*, unsigned int)'
+\end{console}
+
+\noindent The construct is the \textbf{virtual destructor}. Every class that has one gets a second,
+``deleting'' destructor, which runs the destructor and then calls \code{operator delete}, so that
+\code{delete} through a base pointer frees the right object; the vtable points at it, so it is
+emitted, and names \code{operator delete}, even though nothing in the program ever deletes anything.
+From C++14 it calls the sized form, \code{operator delete(void*, size_t)}, and \code{size_t} is an
+\code{unsigned int} on the AVR. That is why the linker names the three concrete classes: each
+inherits a virtual destructor from its \code{Interface}.
+
+The other symbols \file{env.cpp} defines turn up with other flags and other code, which is why it
+defines them all. At \code{-O0} the same link also misses \code{__cxa_pure_virtual}, eight times:
+the \code{Interface} classes' own vtables name it for every pure virtual, and only the optimizer
+removes those vtables, because every \code{Interface} is constructed as the base of a concrete class
+that overwrites its vtable pointer at once. Without \code{-fno-threadsafe-statics}, a
+function-local \code{static} with a constructor, such as a \code{static driver::uart::Uart
+uart\{spi\};} inside \code{main()}, adds \code{__cxa_guard_acquire} and \code{__cxa_guard_release}.
+And under \code{-fno-sized-deallocation} the missing symbol is the unsized
+\code{operator delete(void*)} instead.
+
+The host build does not need the file because g++ links libstdc++, which defines every one of these
+symbols, its static guards thread-safe. \file{env.cpp} lives in \file{avr/}, where the host Makefile
+never looks, precisely so that its single-threaded guards can never replace those.
+
+% ------------------------------------------------------------------------------------------
+\solution{c9:ex:3}{Logging and timing}
+\ans{b} Five bytes of eight bits is \textbf{40 \code{SCK} cycles}, which at 1\,MHz is \textbf{40\,\textmu
+s} of clocking. The analyzer shows more: five bursts of eight clocks, each 8\,\textmu s long, with a
+gap between consecutive bursts, and \code{SS} falling a little before the first and rising a little
+after the last.
+
+The gaps are software. \code{SCK} runs only while a byte is shifting, and between two bytes the CPU
+has to notice \code{SPIF}, return from \code{transfer()}, go round \code{readReg}'s loop and fold the
+byte into its 32-bit result, make the next virtual call through the transport interface, and write
+\code{SPDR} again. Counted from the reference build's disassembly, that path is about 30 CPU cycles,
+roughly 2\,\textmu s at 16\,MHz, so a register read takes about $5 \times 8 + 4 \times 2 = 48$\,\textmu
+s between the first clock and the last, and about 50\,\textmu s from \code{SS} falling to \code{SS}
+rising, once the \code{begin()} and \code{end()} calls on either side are counted. Your gaps depend on
+your code and your compiler, but not by more than a microsecond or two; what does not change is that
+the bus clocks for about four fifths of a transaction and waits for the CPU for the rest.
+
+With the logging from part a) in the loop, the gaps \emph{between} transactions are a different
+matter: a twenty-character line at 115200~baud takes 1.7\,ms to leave the USART, more than thirty
+register reads.
+
+\ans{c} The SPI is \textbf{synchronous}. The master's hardware makes \code{SCK} itself, by dividing
+the CPU clock by the prescaler chosen in \code{SPCR} and \code{SPSR}, and sends it on its own wire;
+the slave samples on the edges it receives. The code chooses only a ratio, f\textsubscript{osc}/16,
+never a frequency, and the exact rate does not matter to either end so long as it stays within what
+the slave and the wiring can take. No number in the transport depends on the clock, so it needs no
+\code{F_CPU}.
+
+The USART is \textbf{asynchronous}. There is no clock wire: the PC's end has a clock of its own and
+agrees with the ATmega only on a number, the baud rate, which the ATmega has to produce from its own
+clock by computing a divider, \code{UBRR0 = F_CPU / (16 * baud) - 1}, rounded to an integer. The code
+can only compute that from the clock frequency, so \code{F_CPU} has to be the real one: with a wrong
+\code{F_CPU} every character leaves at the wrong rate and arrives as garbage.
+
+The rounding matters at the log's end of the line too. At 16\,MHz, 115200~baud needs a divider of
+7.68, which rounds to 8 and gives 111111~baud, 3.5\,\% slow, at the edge of what a frame tolerates.
+Setting \code{U2X0}, which halves the divisor's factor from 16 to 8, gives a divider of 16 and
+117647~baud, 2.1\,\% fast; 38400~baud (divider 25) and 9600~baud (divider 103) are both within
+0.2\,\%.
+
+% ------------------------------------------------------------------------------------------
+\solution{c9:ex:4}{Your own \code{uart_top} on the board}
+\ans{a} The \textbf{Fitter} report's resource usage summary gives the size: the logic utilization
+in ALMs, out of the 18\,480 of the DE0-CV's Cyclone~V (a 5CEBA4F23C7), the registers, and the pins.
+This peripheral is a small fraction of the device, well under a few per cent; the exact figure
+depends on your code and on the Quartus version, and is worth recording mainly so that you notice
+if a later change makes it jump.
+
+The \textbf{Timing Analyzer} gives the other number. Read the worst-case \textbf{setup slack} and
+\textbf{hold slack} for the 50\,MHz clock across all the timing corners Quartus analyzes, slow and
+fast silicon at the hot and the cold end of the temperature range; the multicorner summary gathers
+the worst of them in one table. \textbf{Positive slack on every path, in every corner, means the
+design met timing}; the restricted \code{Fmax} for the clock, which should come out comfortably
+above 50\,MHz for a design this shallow, says the same thing another way. Check first that the
+clock is actually constrained, a 20\,ns period on the 50\,MHz pin in the project's timing
+constraints: an unconstrained clock is analyzed against nothing, and its slack means nothing. The
+asynchronous inputs, \code{rx} and the three SPI inputs, are expected to show up as unconstrained,
+because they enter through synchronizers and have no timing relationship to the clock to check.
+
+\emph{The report} is how you know, and the design working is not, because the analysis covers the
+slowest silicon, the lowest supply voltage and the highest temperature the part is specified for,
+and the board on your desk is one sample, at room temperature, today. A design with negative slack
+can work on the first try and fail warm, or on the next board; and nothing a working design does
+tells you how much margin it has left.
+
+\ans{c} The pin loopback proves the \textbf{physical path}, which the simulation never had in it:
+that the FPGA is configured at all, that the wrapper's pin assignment puts \code{rx} and \code{tx} on
+the header pins the wires go to, and that the adapter really is at 3.3\,V logic. It cannot tell you that the terminal's rate is
+right: the adapter sends and receives at the same setting, so a loopback agrees with itself at any
+rate, and the rate is first on trial when the peripheral talks to the terminal in \chapref{10}. No simulation has a pin, a voltage, a USB adapter
+or a terminal in it.
+
+\code{uart_top_tb} proves the \textbf{peripheral}, which the pin loopback never had in it: that a
+byte written to \code{TX_DATA} over SPI leaves \code{uart_tx} correctly framed at the rate
+\code{BAUD_DIV} sets, and comes back through \code{sync}, \code{uart_rx} and the RX FIFO to be read
+from \code{RX_DATA}. With \code{rx} wired straight to \code{tx} in the wrapper, none of your logic is
+in the path, so a character echoing in the terminal says nothing about it. Neither of the two says
+anything about timing, which is what part a) is for.

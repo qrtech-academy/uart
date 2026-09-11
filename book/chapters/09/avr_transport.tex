@@ -1,0 +1,124 @@
+% Section 9.1, from lectures/L09/appendix/a_avr_transport.md.
+
+\section{The SPI Peripheral and \code{AvrSpi}}
+\label{c9:sec:avr_transport}\label{c9:app:a}
+This is the bottom of the stack, and the one place the code finally touches real hardware.
+Everything above the seam, the register map, the \code{Interface}, the \code{Uart} driver, was built
+and host-tested in Chapters~6 to~8 against a scripted \code{Stub}. Here you implement the
+\emph{other} \code{driver::transport::Interface}, the one that drives the ATmega328P's own SPI
+peripheral, so that exactly the same driver runs over a real 1\,MHz SPI bus with nothing above the
+seam changing.
+
+\code{AvrSpi} is deliberately thin: it configures the SPI master once, then translates the three
+seam calls into register accesses. All the protocol knowledge (five-byte transactions, the command
+byte, the byte order) already lives in the driver above it.
+
+\subsection{The SPI registers}
+\label{c9:sec:spi_registers}
+The ATmega328P's SPI is three \code{volatile} memory-mapped registers. This is the \code{volatile}
+lesson from modern embedded C++, now on the master side of the wire: the compiler must not cache or
+reorder these accesses, because each one is a real bus event.
+
+\begin{booktable}{@{}p{4.4em}p{7.6em}L@{}}
+  \thead{Register} & \thead{Bit} & \thead{Meaning} \\
+  \midrule
+  \code{SPCR} & \code{SPE} & SPI enable. \\
+  \code{SPCR} & \code{MSTR} & Master (1) or slave (0). \\
+  \code{SPCR} & \code{DORD} & Data order: 0 for most significant bit first, 1 for least. \\
+  \code{SPCR} & \code{CPOL} & Clock polarity: 0 means \code{SCK} idles low. \\
+  \code{SPCR} & \code{CPHA} & Clock phase: 0 means sample on the leading edge. \\
+  \code{SPCR} & \code{SPR1}, \code{SPR0} & \code{SCK} rate select (with \code{SPI2X}). \\
+  \code{SPSR} & \code{SPIF} & Transfer complete: set when a byte has finished shifting. \\
+  \code{SPSR} & \code{SPI2X} & Double the \code{SCK} rate. \\
+  \code{SPDR} & --- & Data register: write to start a transfer, read to get the byte clocked in. \\
+\end{booktable}
+
+The transport contract of Part~3 of the protocol (\secref{proto:part3}) pins every one of these. The
+ATmega is the \textbf{master}, running \textbf{mode 0} (\code{CPOL = 0}, \code{CPHA = 0}),
+\textbf{most significant bit first} (\code{DORD = 0}), with \code{SCK} at
+\textbf{f\textsubscript{osc}/16 = 1\,MHz}, the Nano's 16\,MHz clock divided by 16
+(\code{SPR1:SPR0 = 01}, \code{SPI2X = 0}).
+
+1\,MHz is not a limit the FPGA imposes: \code{spi_slave} synchronizes \code{sclk} into the 50\,MHz
+domain and edge-detects it, so it keeps up with far more than this. It is simply the nearest
+prescaler value below the rate at which a breadboard and a passive level shifter stop being
+reliable, and it leaves comfortable margin for both.
+
+\subsection{Configuring the master}
+\label{c9:sec:configuring}
+Configuration is a one-time setup of \code{SPCR}, plus the port pins. On the ATmega328P the SPI pins
+are fixed: \code{SCK} is PB5, \code{MOSI} PB3, \code{MISO} PB4, and the hardware \code{SS} PB2. Two
+details matter. The first is direction: \code{SCK}, \code{MOSI} and \code{SS} are outputs while
+\code{MISO} is an input, and you set that in \code{DDRB}. The second is that \code{SS} (PB2)
+\textbf{must be an output} in master mode. If it is left an input and something pulls it low, the
+peripheral clears \code{MSTR} and demotes itself to a slave mid-flight. PB2 doubles as the chip
+select to the FPGA, so driving it is the transport's job anyway.
+
+\subsection{Releasing the registers on destruction}
+\label{c9:sec:releasing}
+The constructor is the one place that \emph{sets} bits, so the destructor is the one place that
+clears them: \code{AvrSpi} acquires the SPI hardware when it is constructed and \textbf{must release
+it when it is destroyed}, leaving the registers exactly as the reset left them. Clear every bit the
+constructor set, and nothing else: the \code{DDRB} direction bits for \code{SCK}, \code{MOSI} and
+\code{SS}, putting them back to inputs; the \code{SS} bit in \code{PORTB}, which is the chip-select
+drive and its pull-up; and all of \code{SPCR}, written to \code{0}, which disables the SPI
+peripheral.
+
+\code{MISO} was never configured, so leave it untouched. The destructor is \code{noexcept} and,
+because the transport \code{Interface} declares a virtual destructor, is marked \code{override}, so
+destroying an \code{AvrSpi} through an \code{Interface&} still runs it. This is plain RAII: whatever
+the constructor took, the destructor gives back, so the next owner of those pins --- a second
+\code{AvrSpi}, or any other code --- starts from the power-on state rather than a half-configured SPI
+master.
+
+\subsection{The three seam methods}
+\label{c9:sec:seam_methods}
+The seam maps directly onto the peripheral. \code{begin()} drives the chip select low (\code{SS},
+PB2), opening a transaction, and \code{end()} releases it high again, closing it. Between them,
+\code{transfer(byte)} exchanges one byte in full duplex: write the byte to \code{SPDR}, wait for the
+hardware to finish, then read \code{SPDR} for the byte that arrived on \code{MISO}.
+
+That wait is the whole subtlety. A byte takes eight \code{SCK} periods to shift, and \code{SPDR} does
+not hold the received byte until the transfer completes, signalled by \code{SPIF} going high:
+
+\begin{cppcode}
+SPDR = byte;
+while (0U == (SPSR & (1U << SPIF))) {} // Spin until the transfer completes.
+return SPDR;                           // Now SPDR holds the received byte.
+\end{cppcode}
+
+\noindent Read \code{SPDR} \emph{before} \code{SPIF} is set and you get stale data from the previous
+exchange, so the poll is not optional. (Reading \code{SPSR} then \code{SPDR} also clears
+\code{SPIF}, arming the next transfer.) This is the same three-method seam the \code{Stub} of
+\chapref{8} implemented; the difference is that these bytes are real.
+
+\subsection{Testing it on the host}
+\label{c9:sec:host_testing}
+The transport touches hardware, but its \emph{logic} is still worth pinning without a bench, so it
+is host-tested exactly as the \code{Stub} of \chapref{8} was, over a mocked register file. On the
+target, \code{AvrSpi} reaches the registers through a platform header
+(\file{arch/avr/hw_platform.hpp}), which forwards to \code{<avr/io.h>} and resolves \code{SPCR},
+\code{SPSR}, \code{SPDR}, \code{DDRB} and \code{PORTB} to the real memory-mapped hardware. On the
+host, that same platform header selects a provided mock instead, under \code{-DHOST_TEST}, which
+backs \code{DDRB}, \code{PORTB} and \code{SPCR} with plain storage and makes \code{SPDR} and
+\code{SPSR} proxy objects, so that reading them has an effect the way it does on the part. It records
+the bytes written to \code{SPDR} as a \code{MOSI} log and returns a scripted byte on each
+\code{SPDR} read from a \code{MISO} queue, and it models the one property that matters here: a
+transfer takes time. Writing \code{SPDR} starts it, \code{SPIF} stays \textbf{clear}, and only a
+read of \code{SPSR} --- the driver's own poll --- completes the transfer and makes the received byte
+readable. Delete the poll and \code{transfer()} hands back a stale byte (on the
+mock, the value left from reset, since without the poll no transfer ever completes), and the suite
+goes red. It is the direct counterpart of the \code{Stub}.
+
+With that mock, a provided host suite pins the register-level behaviour the bench cannot easily
+show: the master configuration bits, the chip-select framing (\code{begin} low, \code{end} high),
+the \code{SPIF} poll, and that \code{transfer} returns the byte the mock presented, in order. Only
+the register file needs mocking; the transport uses no interrupts and no \code{F_CPU}-derived
+timing, so neither \code{<avr/interrupt.h>} nor \code{F_CPU} comes into it. The whole transport is
+then proven end to end on the bench in \chapref{10}.
+
+\subsection{What's ahead}
+\secref{c9:sec:freestanding} covers the target the transport is built for: a freestanding avr-gcc
+build, what it removes, the \file{env.cpp} runtime stubs, and flashing with avrdude. The exercises
+in \secref{c9:sec:exercises} implement \code{AvrSpi}, the freestanding bring-up \code{main}, and
+UART-based logging.

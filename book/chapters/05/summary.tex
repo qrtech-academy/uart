@@ -1,0 +1,39 @@
+% Section 5.2, from lectures/L05/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c5:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Explain why a single-cycle error pulse cannot be polled}, and implement
+    pulse-to-level latching with a defined set and clear pair for each \code{ERROR_FLAGS} bit, while
+    deriving every \code{STATUS} bit combinationally from the FIFO flags instead.
+  \item \textbf{Explain why popping a FIFO on read would need write-like commit-and-abort
+    discipline}, and why splitting the pure read (\code{RX_DATA}) from the explicit pop
+    (\code{RX_POP}) avoids it.
+  \item \textbf{Instantiate the register bank into \code{uart_top} positionally}, completing the
+    peripheral so that it passes the system testbench.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Why can \code{STATUS} bit 1 (RX valid) not simply be wired to the receiver's ``byte ready''
+    pulse?
+  \item A \code{TX_DATA} write arrives while \code{STATUS} bit 0 (TX ready) is clear: what happens,
+    and why is dropping the byte the right choice here?
+  \item \code{SS} rises after the third byte of an \code{RX_POP} write: what must the peripheral do,
+    and which part of the transport contract guarantees it?
+  \item If reading \code{RX_DATA} returns a byte but never advances the FIFO, what did the driver
+    forget, and what would go wrong if \code{RX_DATA} popped on its own?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+The FPGA half is done. The driver stack begins in \chapref{6}, on the host, with no hardware: the
+\code{driver::uart::Interface} and its \code{driver::transport::Interface} seam, then a first
+\code{driver::uart::Stub} written against that interface.

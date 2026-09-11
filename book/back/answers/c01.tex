@@ -1,0 +1,121 @@
+% Section B.1: the answers to the parts of lectures/L01/appendix/c_exercises.md that are not code.
+% Every testbench message quoted was produced by a design built to Chapters 1 to 5 and broken in
+% exactly the way the part describes.
+
+\section{Chapter 1: The Register Package and the Peripheral Top}
+\label{sol:c1}
+Exercise~\ref{c1:ex:2} is the build of \code{uart_top}, checked by a clean analysis now and by
+\code{uart_top_tb} from \chapref{5} on; only its closing question, part e), is answered here.
+
+\solution{c1:ex:1}{\code{uart_def}}
+\ans{a} The register indices are \code{REG_STATUS} 0, \code{REG_CTRL} 1, \code{REG_BAUD_DIV} 2,
+\code{REG_TX_DATA} 3, \code{REG_RX_DATA} 4, \code{REG_RX_POP} 5 and \code{REG_ERR_FLAGS} 6, each the
+byte offset divided by four. The \code{STATUS} bits are \code{ST_TX_READY} 0, \code{ST_RX_VALID} 1,
+\code{ST_ERROR} 2 and \code{ST_TX_IDLE} 3; the \code{CTRL} bits \code{CT_ENABLE} 0,
+\code{CT_PARITY_LO} 1, \code{CT_PARITY_HI} 2, \code{CT_STOP} 3, \code{CT_RX_IRQ} 4 and
+\code{CT_TX_IRQ} 5; the \code{ERROR_FLAGS} bits \code{ER_FRAMING} 0, \code{ER_PARITY} 1 and
+\code{ER_OVERRUN} 2.
+
+\ans{b} In VHDL the position indexes the vector directly:
+
+\begin{vhdlcode}
+if (status(ST_RX_VALID) = '1') then
+\end{vhdlcode}
+
+\noindent In C++ the same number is shifted into a mask at the use site:
+\code{(status & (1U << status::RX_VALID)) != 0U}. The protocol speaks of ``\code{STATUS} bit 1'',
+and a position is that number and nothing else, so both files can be checked against the protocol
+by reading it off, digit for digit. A mask would be a derived value, \code{2} here and \code{4} for
+bit 2, which the reader has to recompute to compare, and which only means something for one word
+width. Storing positions also keeps the two languages identical, because the only difference between
+them is the operator that uses the constant, and that operator is written where it is used.
+
+\ans{c} \textbf{In no testbench at all.} Every testbench that touches those two registers names them
+through \code{uart_def}, and so does the register bank. \code{uart_regs_tb} writes \code{RX_POP} to
+``\code{REG_RX_POP}'' and the bank decodes ``\code{REG_RX_POP}'', so after the swap both sides mean
+6 and the bench still passes; the same holds for \code{ERROR_FLAGS} at 5. \code{uart_top_tb} never
+reads or writes index 5 or 6. Both were run with the swapped package, and both report that they
+passed. A constant that is wrong in the one place everything reads it from is wrong consistently,
+and a consistent error is invisible to any check built from the same source.
+
+The C++ side is a separate transcription, and it still says \code{RX_POP} is 5 and
+\code{ERROR_FLAGS} is 6, so the host suites in Chapters~8 and~9 pass too. The swap surfaces only
+when the two transcriptions finally meet, on the bench in \chapref{10}. There the driver's
+\code{read()} ends with \code{writeReg(RX_POP, 1)}, which the peripheral now takes as an
+\code{ERROR_FLAGS} write: it sets the framing flag, so \code{STATUS} bit 2 comes up, and it never
+advances the RX FIFO, so \code{RX_VALID} stays set and every later \code{read()} returns the same
+byte. \code{clearErrors()} writes index 6, which the peripheral now takes as a pop, and silently
+throws a received byte away.
+
+Rung c of the ladder can still pass, because it sends one byte and reads one byte back, and that
+first read is correct; it shows the fault only if the bring-up program looks at \code{STATUS} after
+the read, or sends a second byte. Rung d shows it for certain: the first character typed comes back
+correctly and so does every read after it, the same character each time. At rung e,
+\code{EchoNode} echoes the first character typed without end.
+
+\solution{c1:ex:2}{\code{uart_top}}
+\ans{e} With only the provided files and your skeleton in \file{hw/}, \code{make build-vhdl} analyzes
+five modules, runs the two transport testbenches, and skips the rest:
+
+\begin{console}
+==> uart_top_tb (skipped: no baud_gen.vhd sync.vhd fifo.vhd uart_tx.vhd uart_rx.vhd uart_regs.vhd yet)
+2 testbench(es) run, 7 skipped.
+\end{console}
+
+\noindent \code{baud_gen} and \code{uart_tx} arrive in \chapref{2}, \code{sync} and \code{uart_rx} in
+\chapref{3}, \code{fifo} in \chapref{4} and \code{uart_regs} in \chapref{5}. The one that
+\code{uart_top} never instantiates is \code{fifo}: \code{uart_regs} owns both FIFOs. The build needs
+it anyway because elaboration needs every entity in the hierarchy, not only the top's direct
+children, and \code{uart_regs} cannot be analyzed until the entity it instantiates twice is already
+in the \code{work} library.
+
+\solution{c1:ex:3}{What a clean analysis does not prove}
+\ans{a} \code{ghdl -a} accepts it. Both ports are \code{in std_logic}, so the entity is as legal
+with them swapped as without, and the architecture refers to them by name, so it still analyzes.
+Nothing binds to the entity positionally until \code{uart_top_tb} runs in \chapref{5}, and there
+the first check fails: the bench's clock now arrives on the peripheral's \code{mosi} and its data on
+\code{sclk}, so the first write never lands and the read-back reports
+
+\begin{console}
+uart_top_tb: BAUD_DIV read-back mismatch, got 0x0000!
+\end{console}
+
+\noindent four chapters after the mistake was made, in a message about \code{BAUD_DIV}. That is the
+cost of a positional contract: the order of the ports is checked by nothing except a simulation of
+the whole system, and when that simulation fails it points at the first symptom rather than the
+cause. A named association would have caught it at analysis; the course binds positionally so that
+the order in each interface table is something you have to get right.
+
+\ans{b} All zeros. Every read transaction clocks out \code{0x00000000}, whatever register it
+addresses, because the bridge latches \code{reg_rdata} one cycle after the command byte and shifts
+it out on \code{MISO}. It is harmless until \chapref{5} because nothing reads it: the only testbench
+that drives \code{uart_top} is skipped until then, and no register exists yet to be misreported.
+Without the placeholder the vector is undriven, so every bit is \code{'U'}, and the master samples
+\code{'U'} on all 32 data bits of every read. Both were simulated: the skeleton with the placeholder
+returned \code{00000000000000000000000000000000} for \code{BAUD_DIV} and for \code{STATUS}, and the
+skeleton without it returned 32 \code{'U'}s for each. The placeholder makes the answer a defined
+value; it does not make it a right one.
+
+\ans{c} A release that lands inside the recovery and removal window of the flip-flops around a
+clock edge leaves some of them out of reset on that edge and others on the next, and any of them
+may go metastable on the way. The design then starts half-reset: a state machine whose state
+register has left reset while its outputs have not, a FIFO whose pointers start one cycle apart,
+the SPI slave's edge detector seeing a false edge on a synchronizer stage that left reset a cycle
+early. None of those states is one the logic was designed to leave, and nothing brings it back
+short of another reset.
+
+\code{sync} cannot do this job because of its port list. It takes \code{reset_s2_n} as an input:
+it needs a clean reset in order to reset itself, so it cannot be the thing that produces one. A reset
+synchronizer needs the raw \code{reset_n} on its flops' asynchronous clear, so that the assertion
+reaches them with no clock at all, and a constant \code{'1'} clocked through the chain, so that the
+release arrives a clean two edges later. \code{sync} has no port for either: its only asynchronous
+input is the already-synchronized reset, and its data input is what it synchronizes.
+
+\ans{d} Because the top's instantiation line is the block's contract. \code{uart_top} declares the
+signals it connects and binds them by position, so writing that line fixes how many ports the
+block has, in which order, of which types and in which directions, before the block exists. For
+\code{baud_gen} to bind without the top changing, its entity must declare exactly
+\code{clock} and \code{reset_s2_n} (\code{in std_logic}), then \code{div}
+(\code{in natural range 1 to 65535}), then \code{tick} (\code{out std_logic}), in that order, which is
+also the order \code{baud_gen_tb} binds. The names inside may be anything; the positions and the
+types may not.

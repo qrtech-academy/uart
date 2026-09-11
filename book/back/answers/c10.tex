@@ -1,0 +1,118 @@
+% Section B.10, from lectures/L10/appendix/b_exercises.md and c_bringup.md: every part that is not
+% code. The EchoNode outcomes quoted were measured by running the provided test, and an empty-queue
+% case, against a reference EchoNode and against deliberately broken ones.
+
+\section{Chapter 10: Integration and Bring-Up}
+\label{sol:c10}
+\code{app::EchoNode} and its tests (Exercise~\ref{c10:ex:b1} a, b and d) are code, checked by
+\file{fw/test/app/echo_node_test.cpp} and the case you add to it. Assembling the bench, programming
+the two chips and climbing the ladder (Exercises~\ref{c10:ex:c1} to~\ref{c10:ex:c3}) are procedures
+whose check is the bench itself: each rung either behaves as its description says, or names the
+layer at fault. What is answered here is the reasoning in Exercise~\ref{c10:ex:b1} and the closing
+trace.
+
+% ------------------------------------------------------------------------------------------
+\solution{c10:ex:b1}{\code{app::EchoNode}}
+\ans{b} With nothing queued, the stub's first \code{read()} finds its input already exhausted, sets
+\code{stop} and returns \code{false}; \code{run()} writes nothing, comes back to the top of its loop,
+sees \code{stop}, and returns. The recorded TX is empty.
+
+The mistake only this case catches is \textbf{waiting for input before looking at \code{stop}}: a
+\code{run()} that blocks for a first byte, with \code{readBlocking()} or a loop of its own, and only
+then starts polling. With three bytes queued the first wait is satisfied at once and the flaw is
+invisible; with none, the byte it waits for never comes. Run against both cases, such a
+\code{run()} passes the provided one and hangs on the new one until the suite's timeout kills it:
+
+\begin{console}
+Test case EchoNode.EchoesQueuedBytesThenStops succeeded!
+ERROR: uart_test did not finish within 5s and was killed.
+\end{console}
+
+\noindent On the bench that node is deaf to \code{stop} until somebody types. The other natural
+mistakes are caught by both cases: echoing without checking what \code{read()} returned sends a byte
+that never arrived (the three-byte case records 4 bytes instead of 3, the empty one 1 instead of 0),
+and calling \code{readBlocking()} inside the loop hangs both.
+
+One mistake is caught by neither, and it is worth knowing about: a loop that ends when
+\code{read()} fails, \code{while (myUart.read(byte))}, instead of when \code{stop} is set. It passes
+both cases, because the stub sets \code{stop} at exactly the moment its input runs out, so no test
+built on it can tell ``asked to stop'' from ``nothing waiting''. On the bench it returns the first
+time the terminal is idle, which is at once.
+
+\ans{c} \code{readBlocking()} spins inside the helper until a byte arrives. While it spins, control
+never comes back to \code{run()}'s loop, so \code{stop} is never read again: the node cannot be shut
+down, and a test of it hangs, the three-byte case included, the moment its input runs out. The
+non-blocking \code{read()} returns on every pass, with a byte or without one, and that return is
+what brings the loop back round to look at \code{stop}.
+
+That is also why \code{stop} is a reference read every pass. The flag belongs to someone outside
+\code{run()}, and changes while \code{run()} is running: in the test, the stub sets it from inside a
+\code{read()} that \code{run()} itself called. Passed by value, \code{run()} would hold a copy made
+at the call, \code{false} for ever. Returned, it could not stop a loop that has not returned yet.
+Checked once, at the top, it could only stop the loop before it started. A \code{const volatile bool\&} lets \code{run()} see the owner's current value on every pass while promising, through the
+\code{const}, never to change it.
+
+And it is \code{volatile} because being read every pass is something the compiler must be told.
+\code{run()} never writes the flag, so where nothing the loop calls could write it either --- an
+interrupt handler setting it, say --- the compiler is free to load it once and test a register for
+ever. In the test the stub happens to set it from inside a \code{read()} the loop calls, which
+already forces a fresh load; \code{volatile} makes that true however the flag is set. A byte read
+being indivisible on the ATmega is not the same as the compiler being obliged to repeat it.
+
+% ------------------------------------------------------------------------------------------
+\solution{c10:ex:c4}{Trace a byte}
+One character, typed in the terminal and echoed back:
+
+\begin{booktable}{@{}r>{\raggedright\arraybackslash}p{11.6em}L>{\raggedright\arraybackslash}p{6.4em}@{}}
+  \thead{\#} & \thead{Where} & \thead{What happens} & \thead{Built in} \\
+  \midrule
+  \multicolumn{4}{@{}l}{\itshape In, on the data plane} \\
+  1 & Terminal, adapter, \code{rx} pin & A UART frame at 115200~8N1 and 3.3\,V: a start bit, eight
+    data bits least significant first, a stop bit & external \\
+  2 & \code{sync} & Two flip-flops take the pin into the 50\,MHz domain as \code{rx_s2} &
+    \chapref{3}, placed in \chapref{4} \\
+  3 & \code{baud_gen} & Ticks at 16 times the baud rate, pacing the receiver & \chapref{2} \\
+  4 & \code{uart_rx} & Finds the start edge, samples each bit mid-bit, assembles the byte, pulses
+    \code{valid} as \code{rx_push} & \chapref{3} \\
+  5 & RX FIFO, a \code{fifo} inside \code{uart_regs} & Stores the byte; \code{STATUS} bit 1 (RX
+    valid) becomes 1 & \chapref{4}, \chapref{5} \\
+  \midrule
+  \multicolumn{4}{@{}l}{\itshape Across the control plane and up the stack} \\
+  6 & \code{EchoNode::run()}, \code{Uart::read()} & The node polls; \code{readReg(STATUS)} finds
+    RX valid set & \chapref{10}, \chapref{7} \\
+  7 & \code{AvrSpi}, the level shifter, \code{spi_slave}, \code{spi_reg_bridge} & Each register
+    access is one five-byte transaction; the bridge latches \code{reg_rdata} from the bank's read
+    mux & \chapref{9}; provided \\
+  8 & \code{readReg(RX_DATA)} & The front byte comes back as \code{00 00 00 XX} on \code{MISO} and
+    is assembled most significant first & \chapref{7} \\
+  9 & \code{writeReg(RX_POP, 1)} & \code{85 00 00 00 01}; the bridge commits on the fifth byte and
+    the FIFO advances & \chapref{7}, \chapref{5} \\
+  \midrule
+  \multicolumn{4}{@{}l}{\itshape Back down and out} \\
+  10 & \code{writeBlocking()}, \code{Uart::write()} & \code{readReg(STATUS)} finds TX ready;
+    \code{writeReg(TX_DATA)} sends \code{83 00 00 00 XX} & \chapref{8}, \chapref{7} \\
+  11 & \code{uart_regs}, TX FIFO & The committed write pulses \code{tx_push}; the byte is queued &
+    \chapref{5}, \chapref{4} \\
+  12 & The TX feeder in \code{uart_top} & \code{tx_load} rises with the FIFO non-empty and the
+    transmitter idle, starting \code{uart_tx} and popping the FIFO & \chapref{5} \\
+  13 & \code{uart_tx}, \code{tx} pin, adapter & The frame \code{'1' & data & '0'}, one bit per 16
+    ticks, back to the terminal & \chapref{2} \\
+\end{booktable}
+
+The byte changes representation at every boundary it crosses. It is a \textbf{serial frame}, bits
+in time, on each UART wire; a \textbf{parallel byte} from \code{uart_rx} onwards, in the RX FIFO and
+again in the TX FIFO and the transmitter's frame vector; the \textbf{low byte of a 32-bit register
+word} at the register bank, \code{RX_DATA} on the way in and \code{TX_DATA} on the way out;
+\textbf{a stream of SPI bytes}, the fourth data byte of a five-byte transaction, on the wire between
+the chips; a \code{uint32_t} inside \code{readReg} and \code{writeReg}; and a \code{uint8_t} in the
+driver's interface and in \code{EchoNode}.
+
+\textbf{Worth noticing}, now that every layer is in view: one echoed character costs at least five
+register transactions, \code{STATUS}, \code{RX_DATA} and \code{RX_POP} to read it, \code{STATUS} and
+\code{TX_DATA} to write it back, plus one \code{STATUS} read for every idle pass of \code{run()}. At
+about 50\,\textmu s a transaction (Exercise~\ref{c9:ex:3}), that is around 250\,\textmu s per
+character, against 86.8\,\textmu s for one frame at 115200~8N1. Typing never notices. A pasted burst
+does: the RX FIFO absorbs the difference for a while, but in a continuous burst the backlog passes
+its eight entries somewhere around the thirteenth character, and from there bytes are dropped
+without a trace, because overrun has no producer in this build: the hardware never sets
+\code{ER_OVERRUN}. The bench works; that is its capacity.

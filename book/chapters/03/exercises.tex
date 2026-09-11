@@ -1,0 +1,89 @@
+% Section 3.4, from lectures/L03/appendix/c_exercises.md.
+
+\section{Exercises}
+\label{c3:sec:exercises}\label{c3:app:c}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c3:ex:1} reinforces \secref{c3:sec:sync} and
+Exercise~\ref{c3:ex:2} \secref{c3:sec:uart_rx}. Design each module from the specification in its
+own section. The FIFO, the two instantiations that put the receive path into \code{uart_top}, and
+the overrun question belong to \chapref{4} (\secref{c4:sec:exercises}), not to this chapter.
+
+\textbf{How to check your work.} Check each module with its provided testbench, run from
+\file{hw/}; the preface's \emph{Setting up} has the full flow.
+
+The answers to every part that is not code are in \secref{sol:c3}. Try each part before you read its
+answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{sync}}{VHDL}
+\label{c3:ex:1}
+
+\xpart{a} Write your own \code{sync.vhd} from the specification in \secref{c3:sec:sync} and run its
+testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 sync.vhd sync_tb.vhd
+ghdl -e --std=93 sync_tb
+ghdl -r --std=93 sync_tb --assert-level=error
+\end{shell}
+
+\noindent Note that no package appears in that first line: \code{sync} reads none, which is part of
+what makes it reusable.
+
+\xpart{b} Delete one of the two flip-flops, leaving a single register, and re-run. Which check
+fails, and what does its message tell you? Put it back. Why would this bug pass every \emph{other}
+simulation in the course if this one testbench did not exist?
+
+\xpart{c} \code{sync} clears on \code{reset_s2_n}, and the testbench asserts it \emph{between} two
+clock edges and requires the output to clear before the next one. Change your reset to a
+synchronous one, tested inside \code{if rising_edge(clock)}, and re-run. Which check fails, and what
+is the message? Put it back, then say why the assertion has to be asynchronous while the
+\emph{release} does not need to be, given where \code{reset_s2_n} comes from.
+
+\xpart{d} \code{sync} takes \code{reset_s2_n}, the already-synchronized reset, as an input. Explain
+why that one fact makes it impossible for \code{sync} to be the module that produces
+\code{reset_s2_n}, and why \code{reset_sync} therefore exists as a separate provided block even
+though both are two flops in series.
+
+\xpart{e} \code{uart_top} uses \code{sync} at \code{COUNT = 1}. Two bits of a \code{COUNT = 8}
+instance change on the same edge; explain why \code{sync_out} may show one bit's new value and the
+other's old one for a clock, why that is not a bug in \code{sync}, and why it would matter if those
+eight bits were a counter read across clock domains rather than eight unrelated pins.
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_rx}}{VHDL}
+\label{c3:ex:2}
+
+\xpart{a} Write your own \code{uart_rx.vhd} from the specification in \secref{c3:sec:uart_rx} and
+run its testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd uart_rx.vhd uart_rx_tb.vhd
+ghdl -e --std=93 uart_rx_tb
+ghdl -r --std=93 uart_rx_tb --assert-level=error
+\end{shell}
+
+\noindent \code{uart_def.vhd} comes first because \code{uart_rx_tb} reads the package, for the
+\code{to_hex} in its failure messages. \code{sync.vhd} is not on that line at all: \code{uart_rx}
+reads \code{rx_s2}, the already-synchronized line, and instantiates nothing. The crossing belongs
+one level up, in \code{uart_top}, which is where Exercise~\ref{c4:ex:2} puts it.
+
+\xpart{b} The receiver samples each bit at tick 8 of 16. Suppose the transmitter's baud rate is a
+few percent faster than the receiver's, so the receiver's ticks are slightly long. Which end of the
+byte drifts furthest from the bit centre, the first data bit or the stop bit, and why? Roughly how
+much faster could the transmitter run before the stop-bit sample landed outside its bit?
+
+\xpart{c} The \code{STATE_START} state re-checks \code{rx_s2} at tick 8 before committing to a
+frame. Remove that check (go straight from the falling edge to \code{STATE_DATA}) and describe what
+a single-tick glitch on an idle line would now produce. Which real-world condition makes this more
+than a theoretical worry?
+
+\xpart{d} Trace the store \code{frame(bit_idx) <= rx_s2} for the byte \code{0x53}
+(\code{0101_0011}) sent least significant first. Write the eight received bits in the order they
+arrive, name the index each one lands in, and show that after eight bits \code{frame} holds
+\code{0x53}. Then: what would \code{data_out} read if \code{bit_idx} counted \textbf{down} from 7
+instead of up from 0, and what is the relationship between that byte and the one that was sent?

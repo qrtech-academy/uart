@@ -1,0 +1,164 @@
+% Section 5.3, from lectures/L05/appendix/b_exercises.md.
+
+\section{Exercises}
+\label{c5:sec:exercises}\label{c5:app:b}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c5:ex:1} reinforces \secref{c5:sec:uart_regs}, and
+Exercise~\ref{c5:ex:2} completes \code{uart_top} from \secref{c1:sec:uart_top}. The \code{fifo} the
+register bank owns was built in \chapref{4}, so it is already in \file{hw/} and ready to
+instantiate. Build each module from its section.
+
+\textbf{How to check your work.} Check each module with its provided testbench, run from
+\file{hw/}; the preface's \emph{Setting up} has the full flow.
+
+The answers to every part that is not code are in \secref{sol:c5}. Try each part before you read its
+answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_regs}}{VHDL}
+\label{c5:ex:1}
+
+\xpart{a} Write your own \code{uart_regs.vhd} from the specification in \secref{c5:sec:uart_regs}
+and run its testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd fifo.vhd uart_regs.vhd uart_regs_tb.vhd
+ghdl -e --std=93 uart_regs_tb
+ghdl -r --std=93 uart_regs_tb --assert-level=error
+\end{shell}
+
+\noindent \code{uart_def.vhd} (the register map) and \code{fifo.vhd} come first because
+\code{uart_regs} reads the package and instantiates two FIFOs.
+
+\xpart{b} Make \code{RX_DATA} pop the FIFO on read (advance \code{tail} whenever that index is
+read). Re-run. Which check fails first, and why is it not the ``a bare \code{RX_DATA} read must not
+pop'' check? Does \code{uart_top_tb} notice? Then explain, in terms of the SPI transport's abort
+rule, why a read with a side effect is a genuinely harder thing to get right than the pure read plus
+a separate \code{RX_POP}.
+
+\xpart{c} \code{STATUS} is computed, not stored. Name the four things each of its bits is derived
+from, and say why none of them can simply be a stored register that the datapath writes.
+
+\xpart{d} The bank acts on every \code{reg_write} it sees as a real commit. What does it rely on the
+provided SPI bridge to guarantee for that to be safe, and what would break if a half-finished
+(aborted) transaction could reach it as a \code{reg_write}?
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_top}}{VHDL}
+\label{c5:ex:2}
+
+\xpart{a} You built the \code{uart_top} skeleton in \chapref{1} and added \code{baud_gen},
+\code{uart_tx}, \code{sync} and \code{uart_rx} across Chapters~2 and~4, declaring each block's
+signals as you went. Now do it once more for \code{uart_regs}, the last block the top was waiting
+for. Three signals are new here:
+
+\begin{narrowtable}{@{}llll@{}}
+  \thead{Signal} & \thead{Type} & \thead{Driven by} & \thead{Read by} \\
+  \midrule
+  \code{tx_empty} & \code{std_logic} & \code{uart_regs} & the feeder below \\
+  \code{rx_full} & \code{std_logic} & \code{uart_regs} & nothing, in this build \\
+  \code{tx_pop} & \code{std_logic} & the feeder below & \code{uart_regs} \\
+\end{narrowtable}
+
+Every other port below is a signal you already declared in Chapters~1, 2 or~4 --- which is the
+point of having declared them where they were needed.
+
+\modulefigure{uart_regs}
+
+\begin{booktable}{@{}rp{6.4em}p{1.8em}p{15.2em}L@{}}
+  \thead{\#} & \thead{\code{uart_regs} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{reg_addr} & in & \code{std_logic_vector(3 downto 0)} & \code{reg_addr} (\chapref{1}) \\
+  4 & \code{reg_wdata} & in & \code{std_logic_vector(31 downto 0)} & \code{reg_wdata}
+    (\chapref{1}) \\
+  5 & \code{reg_write} & in & \code{std_logic} & \code{reg_write} (\chapref{1}) \\
+  6 & \code{tx_pop} & in & \code{std_logic} & \code{tx_pop} \\
+  7 & \code{rx_byte} & in & \code{std_logic_vector(7 downto 0)} & \code{rx_byte} (\chapref{4}) \\
+  8 & \code{rx_push} & in & \code{std_logic} & \code{rx_push} (\chapref{4}) \\
+  9 & \code{tx_busy} & in & \code{std_logic} & \code{tx_busy} (\chapref{2}) \\
+  10 & \code{frame_err} & in & \code{std_logic} & \code{frame_err} (\chapref{4}) \\
+  11 & \code{reg_rdata} & out & \code{std_logic_vector(31 downto 0)} & \code{reg_rdata}
+    (\chapref{1}) \\
+  12 & \code{baud_div} & out & \code{std_logic_vector(15 downto 0)} & \code{baud_div}
+    (\chapref{2}) \\
+  13 & \code{tx_byte} & out & \code{std_logic_vector(7 downto 0)} & \code{tx_byte} (\chapref{2}) \\
+  14 & \code{tx_empty} & out & \code{std_logic} & \code{tx_empty} \\
+  15 & \code{rx_full} & out & \code{std_logic} & \code{rx_full} \\
+\end{booktable}
+
+\begin{vhdlcode}
+-- The register bank: the bridge's bus on one side, the datapath on the other.
+-- This closes every loop in the design - the bus now has something answering on
+-- it, the transmitter has a byte source, and the receiver has somewhere to put
+-- what it recovers.
+uart_regs: entity work.uart_regs
+    port map(clock, reset_s2_n, reg_addr, reg_wdata, reg_write, tx_pop, rx_byte,
+             rx_push, tx_busy, frame_err, reg_rdata, baud_div, tx_byte, tx_empty,
+             rx_full);
+\end{vhdlcode}
+
+\noindent Delete the \code{reg_rdata <= (others => '0');} placeholder from \chapref{1} in the same
+edit: the bank drives that vector now, and leaving the placeholder in gives it two drivers.
+
+With \code{tx_empty} finally driven, the \textbf{TX feeder} can be written, the one piece of real
+logic the top has been waiting to hold. It is two concurrent statements:
+
+\begin{vhdlcode}
+-- The TX feeder: load the transmitter whenever a byte is queued and the line is
+-- free, and pop the FIFO on that same edge, so exactly one byte moves per idle
+-- transmitter. The instant the transmitter goes busy, tx_load drops - which is
+-- what stops a second byte following it.
+tx_load <= (not tx_empty) and (not tx_busy);
+tx_pop  <= tx_load;
+\end{vhdlcode}
+
+\noindent Note why this could not have been written earlier: \code{tx_empty} comes from the register
+bank and \code{tx_busy} from the transmitter, so the feeder needs a block from \chapref{2} and a
+block from \chapref{5} to exist at the same time. That is the general shape of this design, and the
+reason signals are declared where they are needed rather than all at once in \chapref{1}.
+
+The receive side needs no equivalent: \code{uart_rx}'s \code{valid} went straight to \code{rx_push}
+in \chapref{4}, so the receiver pushes its own byte into the RX FIFO.
+
+Then run the system testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd sync.vhd fifo.vhd \
+     uart_tx.vhd uart_rx.vhd uart_regs.vhd spi_slave.vhd spi_reg_bridge.vhd \
+     uart_top.vhd uart_top_tb.vhd
+ghdl -e --std=93 uart_top_tb
+ghdl -r --std=93 uart_top_tb --assert-level=error
+\end{shell}
+
+\noindent Everything the design contains appears on that line, in dependency order, including
+\code{fifo}, which \code{uart_top} never instantiates itself: \code{uart_regs} owns both of them.
+With the last block in place, the system testbench elaborates the whole peripheral for the first
+time.
+
+If \code{uart_top_tb} fails on the \code{BAUD_DIV} read-back with every \code{1} bit missing from the
+value you wrote (\code{got 0x0000} for the \code{0x0004} it wrote), the placeholder from \chapref{1}
+is still there: each \code{'1'} the bank drives is resolving against its \code{'0'} to \code{'X'}, and
+\code{to_hex} prints an \code{'X'} as a zero.
+
+\xpart{b} The provided \code{reset_sync} asserts asynchronously but releases synchronously. Explain
+what could go wrong if it released \code{reset_s2_n} asynchronously too (the moment \code{reset_n}
+rises), and why asserting asynchronously is nonetheless the right choice.
+
+\xpart{c} Why can \code{reset_sync} not just be a \code{sync} instance, given that both are two
+flip-flops in series? Name the port that settles it, and describe the circular dependency you would
+create by trying.
+
+\xpart{d} Study the TX feeder you wrote in a): \code{tx_load <= (not tx_empty) and (not tx_busy)}.
+Argue that it loads \textbf{exactly one} byte each time the transmitter goes idle with the FIFO
+non-empty, never zero and never two. What holds \code{tx_load} low for the rest of the frame?
+
+\xpart{e} The system testbench loops \code{tx} back to \code{rx}. Trace a single byte: an SPI write
+of \code{TX_DATA}, through the FIFO and the transmitter, out on \code{tx}, back in on \code{rx},
+through the receiver into the RX FIFO, and out again on an SPI read of \code{RX_DATA}. Name the
+block that acts at each step.

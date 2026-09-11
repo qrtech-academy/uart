@@ -1,0 +1,129 @@
+% Section B.3: the answers to the parts of lectures/L03/appendix/c_exercises.md that are not code.
+% Every testbench message quoted was produced by a design built to Chapters 1 to 5 and broken in
+% exactly the way the part describes.
+
+\section{Chapter 3: The Synchronizer and the Receiver}
+\label{sol:c3}
+The a) parts of both exercises are code: \code{sync}, checked by \code{sync_tb}, and
+\code{uart_rx}, checked by \code{uart_rx_tb}.
+
+\solution{c3:ex:1}{\code{sync}}
+\ans{b} The first two-edge check fails and the run stops:
+
+\begin{console}
+sync: output changed after only one clock edge!
+\end{console}
+
+\noindent It says exactly what was deleted: the input reached the output one edge after it changed,
+so there is one register between them where there should be two.
+
+Every other simulation in the course would pass, because \textbf{nothing in a simulator is ever
+metastable}. A one-flop synchronizer is, functionally, a correct synchronizer with one cycle less
+latency, and no other testbench cares about one cycle: \code{uart_rx_tb} drives \code{rx_s2}
+directly and never instantiates \code{sync}, and in \code{uart_top_tb} the looped-back line changes
+in step with the same clock, so it never violates anything. The bug is purely electrical: on the
+bench, the single flop samples a genuinely asynchronous line, sometimes inside its setup and hold
+window, and its output occasionally hangs between levels for long enough to reach the receiver's
+logic. Only a testbench that checks the latency itself can see the missing flop, which is why
+\code{sync_tb} checks it.
+
+\ans{c} Cases 0 to 4 still pass: the reset is held low across two clock edges there, so a synchronous
+reset has time to clear the chain. Case 5 asserts \code{reset_s2_n} a quarter of a period after an
+edge with \code{1011} standing on the wide output and looks one nanosecond later:
+
+\begin{console}
+sync: reset_s2_n did not clear the output asynchronously!
+\end{console}
+
+\noindent The assertion has to be asynchronous so that the chain clears the moment reset is asserted,
+whether or not a clock edge follows: a design is reset when its clock has not started yet, or has
+stopped, and every other block in \file{hw/} clears the same instant, so a block that waited for an
+edge would be the one block out of step. The release, on the other hand, is not \code{sync}'s
+problem. \code{reset_s2_n} comes from \code{reset_sync}, which already lines its rising edge up with
+the clock, two flip-flops after \code{reset_n} rises. By the time the release reaches \code{sync}
+it is an ordinary synchronous signal, so testing it in the sensitivity list is safe.
+
+\ans{d} A module that needs a signal as an input cannot also be where that signal comes from.
+\code{sync} resets its flops from \code{reset_s2_n}; to produce \code{reset_s2_n} it would have to
+be reset by its own output, which is undefined until the module has already run, and the raw
+\code{reset_n} would have to go through its data input instead, where the assertion would take two
+clock edges to arrive and would not arrive at all without a clock. \code{reset_sync} is built the
+other way round: the raw \code{reset_n} is the asynchronous clear of both its flops, and a constant
+\code{'1'} is clocked through them, so the assertion needs no clock and the release is synchronous.
+The two modules look alike, two flops in series, and are wired in opposite directions, so the course
+keeps both.
+
+\ans{e} Each bit of a wide \code{sync} is its own two-flop chain. If two input bits change on the same
+edge of their own domain and the change lands inside the first flops' setup and hold window, each
+first flop may go metastable and each resolves independently, one to the new value and one to the
+old. The one that resolved to the new value appears at the output two edges later, the other three
+edges later, and for one clock \code{sync_out} shows one bit's new value beside the other's old one.
+
+That is not a bug in \code{sync}: it promises that every bit it delivers is a clean level, and that
+each input change arrives within two or three edges. It does not promise that bits which changed
+together arrive together, and nothing built from independent flops can. For eight unrelated pins it
+does not matter, since each pin is read on its own. For a counter it is fatal: going from
+\code{0111} to \code{1000}, every bit changes, and a mixed sample can be any of sixteen values,
+including \code{1111} and \code{0000}, which the counter never held. A multi-bit value crosses
+domains as a Gray code, where one bit changes per step, or through a handshake or an asynchronous
+FIFO, never through a wide synchronizer.
+
+\solution{c3:ex:2}{\code{uart_rx}}
+\ans{b} \textbf{The stop bit} drifts furthest. The receiver resynchronizes only on the start edge; every
+later sample is timed by counting its own ticks from there, so a rate error accumulates with the
+time since that edge. The first data bit is sampled about 1.6 bit periods after the edge, the stop
+bit about 9.7, so the stop bit carries six times the drift.
+
+With the transmitter faster by a fraction $f$, its bit period is $1/(1+f)$ of the receiver's. Its
+stop bit, the tenth bit of the frame, ends ten of its own bit periods, 160 of its ticks, after the
+edge. The stop-bit sample has to land before that.
+
+\begin{itemize}
+  \item \textbf{An ideal tick-8 sampler} samples the stop bit at the centre of its tenth bit, 9.5 bit
+    periods, 152 of its ticks, after the edge. It needs $152 < 160/(1+f)$, so $f < 160/152 - 1 =
+    5.3\,\%$. Counting the up to one tick a 16-times sampler inherently takes to notice the edge,
+    $f < 160/153 - 1 = 4.6\,\%$.
+  \item \textbf{This receiver} samples the stop bit 155 ticks after the tick that noticed the edge
+    (9 to the start re-check, 17 to the first data bit, 16 for each of the other seven, 17 to the
+    stop bit), and the edge is noticed up to one tick after it happens, so up to 156 ticks after the
+    edge. It needs $156 < 160/(1+f)$, so $f < 160/156 - 1 = 2.6\,\%$.
+\end{itemize}
+
+\noindent So the transmitter can run about 5\,\% fast against the ideal sampler, and only about
+2.5\,\% fast against this one, which spends half the budget on its own late sampling phase before
+any mismatch starts. The budget is shared by both ends: the DE0-CV's divider alone already runs
+0.47\,\% fast at 115200. The same late phase buys margin the other way: a transmitter up to
+$155/144 - 1 = 7.6\,\%$ \emph{slower} still has its stop bit under the sample.
+
+\ans{c} With the re-check removed, a single tick of low on an idle line starts a frame. The receiver
+then samples a line that has already gone back to idle, reads eight \code{1}s and a high stop bit,
+and delivers a perfectly well-formed \code{0xFF} with \code{valid} and no framing error. Simulated
+with a one-tick glitch, the receiver without the re-check delivered one byte, \code{0xFF}, and no
+framing error; with the re-check it delivered nothing. Note that \code{uart_rx_tb} still passes
+without the re-check: none of its three cases contains a glitch, so the bench cannot see the
+difference.
+
+It is more than theoretical because real lines are noisy, and the moments they are noisiest are the
+ones nobody is watching: a cable plugged in or pulled out, the far end powering up or down, a long
+unshielded run beside a motor or a switching supply, a receive pin left floating with no pull-up.
+Each of those can put a short low pulse on an idle line, and without the re-check each pulse is a
+phantom \code{0xFF} in the RX FIFO.
+
+\ans{d} \code{0x53} is \code{0101_0011}, so least significant first the bits arrive in this order:
+
+\begin{narrowtable}{@{}lcccccccc@{}}
+  \thead{Arrival} & 1st & 2nd & 3rd & 4th & 5th & 6th & 7th & 8th \\
+  \midrule
+  \thead{Value} & \code{1} & \code{1} & \code{0} & \code{0} & \code{1} & \code{0} & \code{1} &
+    \code{0} \\
+  \thead{\code{bit_idx}, index stored} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\end{narrowtable}
+
+\noindent so \code{frame(7 downto 0)} holds \code{0}, \code{1}, \code{0}, \code{1}, \code{0},
+\code{0}, \code{1}, \code{1} from bit 7 down, which is \code{0101_0011}, \code{0x53}. Counting down
+from 7 instead stores the first bit in bit 7, so \code{frame} holds \code{1100_1010}: \code{data_out}
+reads \code{0xCA}, the \textbf{bit reversal} of the byte sent, and \code{uart_rx_tb} says so:
+
+\begin{console}
+uart_rx_tb: received byte mismatch, expected 0x53, got 0xCA!
+\end{console}

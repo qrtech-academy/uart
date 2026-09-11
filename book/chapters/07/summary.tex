@@ -1,0 +1,39 @@
+% Section 7.2, from lectures/L07/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c7:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Implement \code{readReg()} and \code{writeReg()}} as byte sequences that match the
+    protocol exactly, and explain why the four data bytes go most significant first.
+  \item \textbf{Explain what \code{const} does and does not reach} through a reference member, and
+    justify the \code{const_cast} at the one line where a \code{const} method starts driving
+    hardware.
+  \item \textbf{Implement the \code{Uart} methods} over that register core, including the poll, read
+    and \code{RX_POP} split, injecting the transport through the constructor.
+  \item \textbf{Say what each of the three RX accesses would break} if it were omitted, reordered, or
+    folded into the one before it.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item A \code{writeReg()} sends the four data bytes least significant first: what does the
+    peripheral do with the value, and at which point in the book would you first find out?
+  \item \code{readReg()} is \code{const} and calls \code{begin()}, \code{transfer()} and
+    \code{end()}, which are not. Explain why that compiles with no cast at all, and why the book
+    writes the cast anyway.
+  \item The read path is poll \code{STATUS}, read \code{RX_DATA}, write \code{RX_POP}. Take each of
+    the three away in turn and say what the caller observes.
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+In \chapref{8} the driver gets a wire it can be tested against: a scripted
+\code{driver::transport::Stub}, the provided host suite that drives the real \code{Uart} over it with
+no hardware in sight, and the blocking helpers built on top of the non-blocking core.

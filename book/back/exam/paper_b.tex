@@ -1,0 +1,400 @@
+% Appendix E, from exam/paper_b.md: Paper B, questions only. The model answers are a separate
+% appendix, as they are a separate file, so the paper can be sat without them in view.
+
+\chapter{Self-Assessment Paper B}
+\label{exb:ch:paper}
+
+\noindent\textbf{Time:} 4 hours. \textbf{Closed book.} A basic calculator is permitted.
+\textbf{Total: 100 marks.}
+
+\medskip
+This paper exists to test your own skills and knowledge. It is not a qualification and it gates
+nothing. It draws on all ten chapters and on both halves of the system, so \textbf{it is meant to be
+taken once you have finished the book}, after \chapref{10} and the bring-up ladder. The model
+answers are in Appendix~\ref{ansb:ch:answers}.
+
+\section*{Rubric}
+\textbf{The protocol is the single source of truth.} Where an implementation and the protocol in
+Appendix~\ref{proto:ch} disagree, the implementation is wrong. An answer that argues from the
+contract beats one that argues from code.
+
+\textbf{Both languages are the subject, so you write both here.} VHDL is VHDL-93 using
+\code{ieee.std_logic_1164}, and \code{ieee.numeric_std} where a conversion needs it; write the
+\code{library} and \code{use} clauses out at least once, after which they are assumed. C++ that would
+run on the ATmega328P is written in the book's AVR-portable subset: \code{<stdint.h>} and the bare
+types, no \code{std::}, nested \code{namespace} blocks rather than \code{namespace driver::uart}, no
+\code{[[nodiscard]]}, no \code{inline} variables. Host-only test code may use full modern C++, and a
+question says so when it means it.
+
+\textbf{Syntax is not what is being marked. The design is.} A missing semicolon, a forgotten
+\code{is} or an absent \code{#include} costs nothing. A process that describes a latch where you
+meant a wire, or a \code{readReg} that assembles its four bytes backwards, costs that part in full,
+because that is a different system.
+
+\textbf{The book's conventions are the ones expected}, and a design that breaks one should say why:
+\begin{itemize}
+  \item VHDL ports are declared all inputs first, then all outputs, and every \code{port map} and
+    \code{generic map} is \textbf{positional}.
+  \item An active-low signal is named with an \code{_n} suffix; a signal that has been through a
+    two-flop synchronizer is named with an \code{_s2} suffix. Every submodule takes
+    \code{reset_s2_n}; only \code{uart_top} takes the raw \code{reset_n}. Signals carrying SPI
+    traffic between the two transport blocks take a \code{spi_} prefix.
+  \item Resets are asserted \textbf{asynchronously}, so \code{reset_s2_n} belongs in the
+    sensitivity list.
+  \item C++ uses \code{camelCase}, a leading capital on type names, \code{my} on private members
+    and \code{our} on private statics, brace initialization, \code{noexcept} on driver methods, and
+    copy and move deleted on any class holding a reference member or a unique hardware resource.
+\end{itemize}
+
+\textbf{Where a question asks you to review a design}, naming the defect earns half the marks and
+saying what it does to the running system earns the other half. ``This is wrong'' scores nothing.
+
+\subsection*{Supplied constants and formulas}
+
+\begin{booktable}{@{}p{12em}L@{}}
+  \thead{Quantity} & \thead{Value} \\
+  \midrule
+  DE0-CV system clock & 50\,MHz, a 20\,ns period \\
+  Arduino Nano clock (f\textsubscript{osc}) & 16\,MHz \\
+  SPI \code{SCK} & f\textsubscript{osc}/16, which is 1\,MHz; mode 0, MSB first \\
+  Receiver oversampling & 16 times \\
+  Default frame & 8N1: 1 start bit, 8 data bits LSB first, 1 stop bit \\
+  Baud divider & \code{BAUD_DIV = round( 50_000_000 / (16 * baud) )} \\
+  SPI transaction & 5 bytes: 1 command byte, then 4 data bytes MSB first \\
+  SPI command byte & bit 7 = \code{W} (1 write, 0 read), bits 6--4 = 0, bits 3--0 = register
+    index \\
+\end{booktable}
+
+The register map itself is \textbf{not} supplied: Question~\ref{exb:q:5} asks you to write it out,
+and Questions~\ref{exb:q:4} and~\ref{exb:q:6} consume it, which is what the follow-through rule is
+for.
+
+\subsection*{Marks}
+
+\begin{narrowtable}{@{}lcccccccc@{}}
+  \thead{Question} & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
+  \midrule
+  \thead{Marks} & 12 & 13 & 14 & 13 & 12 & 13 & 11 & 12 \\
+\end{narrowtable}
+
+% ------------------------------------------------------------------------------------------
+\question{Building the top before anything it holds}{12}
+\label{exb:q:1}
+
+\qpart{a} Write the complete \code{uart_top} \textbf{entity}, with its \code{library} and \code{use}
+clauses and the book's banner comment naming the inputs and outputs. Eight ports, all inputs first,
+in the order the system testbench binds them.
+
+Then name the \code{use} clause the file does \textbf{not} need in \chapref{1} and say why, name the
+chapter that adds it and the single expression that needs it, and state why \code{uart_top} never
+writes \code{use work.uart_def.all} at all. \worth{3}
+
+\qpart{b} Here are the two provided transport blocks' port lists, in declaration order.
+
+\begin{console}
+spi_slave       1 clock     2 reset_s2_n  3 sclk       4 mosi      5 ss
+                6 tx_data   7 miso        8 rx_data    9 rx_valid  10 ss_active
+
+spi_reg_bridge  1 clock     2 reset_s2_n  3 ss_active  4 rx_data   5 rx_valid
+                6 reg_rdata 7 tx_data     8 reg_addr   9 reg_wdata 10 reg_write
+\end{console}
+
+\noindent\code{spi_slave}'s ports 1--5 are \code{std_logic} inputs, 6 is an 8-bit input vector, 7 is
+a \code{std_logic} output, 8 is an 8-bit output vector, and 9--10 are \code{std_logic} outputs.
+\code{spi_reg_bridge}'s ports 1--3 are \code{std_logic} inputs, 4 is an 8-bit input vector, 5 is a
+\code{std_logic} input, 6 is a 32-bit input vector, 7 is an 8-bit output vector, 8 is a 4-bit
+output vector, 9 is a 32-bit output vector, and 10 is a \code{std_logic} output.
+
+Declare \textbf{exactly} the internal signals these two instantiations and the provided
+\code{reset_sync} require, with their types, following the book's naming conventions, and write the
+three positional instantiations. Do not declare anything a later chapter will bring.
+
+Then answer two things. \code{spi_slave} and \code{spi_reg_bridge} both have a port called
+\code{rx_data}: state why those are not one bus and which way each of your signals runs. And state
+why \code{reg_addr} is four bits wide when there are only seven registers. \worth{5}
+
+\qpart{c} \chapref{1} ends with one placeholder assignment, because the register bank is four
+chapters away.
+
+Write it. Then state what an SPI \textbf{read} transaction returns while it is in place and why that
+is harmless until \chapref{5}, and state what a read would return instead if the placeholder were
+left out altogether --- being precise about what ``returns'' means for a signal nobody drives.
+\worth{2}
+
+\qpart{d} State what building \code{uart_top} before any block it instantiates fixes about every
+block you write later.
+
+Then: \code{baud_gen} arrives in \chapref{2}. State exactly what has to be true of its entity for
+its instantiation in \code{uart_top} to bind correctly without you touching the top again, and name
+the one thing about it that the book explicitly says is \emph{not} part of the contract. \worth{2}
+
+% ------------------------------------------------------------------------------------------
+\question{The generator, the divider, and the frame}{13}
+\label{exb:q:2}
+
+\qpart{a} Write \file{baud_gen.vhd} complete: the \code{library} and \code{use} clauses, the entity
+with its four ports in order and their exact types, and the architecture. It produces a registered,
+one-clock-wide \code{tick} every \code{div} clocks, and its reset is the book's.
+
+Then justify your comparison. State what \code{counter >= div - 1} and \code{counter = div - 1}
+each do when \code{div} is \code{1}, and what each does if \code{div} could ever be \code{0}, and
+say which keeps the counter inside its declared range. \worth{4}
+
+\qpart{b} The peripheral is to run at 9600 baud.
+
+Give the exact (unrounded) divider, the value written to \code{BAUD_DIV}, the baud rate achieved,
+and the error as a percentage with its sign.
+
+Then state why the division is by \code{16 * baud} rather than by \code{baud}, name the module that
+spends the sixteen ticks and say what it spends them on, and state what the transmitter does with
+the same tick stream. \worth{3}
+
+\qpart{c} \code{uart_tx} produces 8N1 only. Extend it with \code{parity_en} and \code{parity_odd}
+inputs.
+
+Give the new frame vector expression and its index range, say which index the parity bit occupies
+and which the stop bit now does, and give the expression that computes the parity bit from
+\code{data} for even parity and for odd.
+
+Then a \code{two_stop} input is added as well. Name the only field of the frame whose length now
+varies, give the three possible frame lengths in bits, and state what the longest frame costs in
+transmitted bytes per second at 115200 baud compared with 8N1. \worth{3}
+
+\qpart{d} A candidate's transmitter passes \code{uart_tx_tb}. Their \code{busy} is not the book's
+concurrent line but a registered flag, set inside the clocked process on the edge \emph{after} the
+state becomes \code{STATE_SEND}, so it rises one clock late.
+
+State what \code{uart_tx_tb} checks about \code{busy} and what it does not. Then state what
+\code{uart_top}'s TX feeder does during that one clock, what \code{uart_tx} does with what the
+feeder sends, and what happens to the byte involved. Give the one-line fix and say which chapter's
+testbench is the first that could have caught it. \worth{3}
+
+% ------------------------------------------------------------------------------------------
+\question{The asynchronous line, written out}{14}
+\label{exb:q:3}
+
+\qpart{a} Write \file{sync.vhd} complete: the \code{library} and \code{use} clauses, the entity with
+its generic and its four ports in order, and the architecture. Two flip-flops per bit, the book's
+reset, and the output taken from the right one.
+
+Then answer two things. State how many rising edges \code{sync_out} takes to follow
+\code{async_in}, and why neither one fewer nor one more is correct. And state what a
+\code{COUNT = 8} instance does \textbf{not} guarantee about eight bits that change on the same edge,
+why that is not a defect in \code{sync}, and one kind of signal you must therefore never put
+through a wide instance. \worth{4}
+
+\qpart{b} Write the \code{STATE_IDLE} and \code{STATE_START} branches of \code{uart_rx}'s state
+machine as the book specifies them, including the one flip-flop of history, where in the process it
+is updated, and why that position matters. Assume the surrounding \code{if baud_tick = '1'} and the
+tick counter are already written.
+
+Then a candidate replaces the falling-edge test with a level test, \code{if rx_s2 = '0' then}. State
+what this does during a \textbf{break} --- the line held low for longer than one frame --- and then
+state precisely what happens to the frame that is still in flight at the moment the break
+\emph{ends}. Name the testbench case that catches it and say what its message tells you. \worth{4}
+
+\qpart{c} Write the \code{STATE_STOP} branch, and the output defaults at the top of the clocked
+process that go with it.
+
+State what makes \code{valid} and \code{frame_err} exactly one clock wide, why the byte is dropped
+on a framing error rather than delivered alongside a flag, and what the register bank does with each
+of the two pulses. \worth{3}
+
+\qpart{d} An earlier revision of \code{uart_rx_tb} sent \code{0xA5} in its clean-frame case and
+\code{0x3C} elsewhere, while \code{uart_top_tb} sent \code{0x5A} through a \code{tx}-to-\code{rx}
+loopback.
+
+Show that a receiver which stores its data bits in the wrong order passed all three. Name the
+property \code{0xA5}, \code{0x3C} and \code{0x5A} share, state how many of the 256 bytes have it,
+and give the \textbf{second}, independent reason \code{uart_top_tb} could not have caught a
+bit-order convention shared by \code{uart_tx} and \code{uart_rx}, however good its constant was.
+
+\code{uart_rx_tb}'s clean-frame case sends \code{0x53} today. State the value \code{data_out}
+carries under the faulty receiver, and hence what the testbench now reports. Then state which single
+kind of bit-order mistake remains beyond the reach of every testbench in \file{hw/}, and why.
+\worth{3}
+
+% ------------------------------------------------------------------------------------------
+\question{The bank, written out}{13}
+\label{exb:q:4}
+
+\qpart{a} Write the \code{ERROR_FLAGS} latch for the framing bit: its reset value, the condition
+that sets it, the condition that clears it, and what happens when both occur on the same clock. Use
+\code{uart_def}'s constants rather than numbers.
+
+Then state why a single-cycle error pulse cannot be polled by software at all, and say what would
+actually be observed if \code{STATUS} bit 2 were wired straight to the receiver's \code{frame_err}
+output and a driver polled \code{STATUS} once per SPI transaction. \worth{4}
+
+\qpart{b} Write the bank's read path: the combinational decode that drives \code{reg_rdata} from
+\code{reg_addr}, covering all seven registers and the reserved indices, using \code{uart_def}'s
+constants. Then write the two write \textbf{actions}, for \code{TX_DATA} and for \code{RX_POP}, as
+the book's bank implements them.
+
+State why the read is combinational rather than registered, what the \code{when others} branch must
+produce and why getting it wrong would be a different kind of mistake here than in a purely
+combinational decoder, and what the bank relies on the provided bridge to guarantee about
+\code{reg_write}. \worth{4}
+
+\qpart{c} Overrun is reserved in this course but not implemented. Design it.
+
+Give the condition that detects an overrun, in terms of signals \code{uart_regs} already has. Give
+the \code{ERROR_FLAGS} bit it sets and its position, and the clear path it shares. State the one
+piece of information \code{uart_rx} would have to be given for it to detect the overrun itself
+instead, and why handing it that information is a worse design.
+
+Then give a physical cause for an overrun and a different physical cause for a framing error.
+\worth{3}
+
+\qpart{d} A candidate's bank stores \code{STATUS} in a 32-bit register, updated in the clocked
+process whenever \code{rx_push}, \code{tx_pop} or \code{frame_err} asserts. It passes a test they
+wrote themselves.
+
+Give two distinct ways it disagrees with \code{uart_regs_tb}, and state the general rule the book
+draws from it in one sentence. \worth{2}
+
+% ------------------------------------------------------------------------------------------
+\question{Writing the contracts}{12}
+\label{exb:q:5}
+
+\qpart{a} Write \file{include/driver/transport/interface.hpp} and
+\file{include/driver/uart/interface.hpp} in full, in the book's AVR-portable style: the include
+guard or \code{#pragma}, the includes, the namespaces, the destructors, and every pure virtual method
+with its exact signature, parameters, return type and qualifiers.
+
+\code{driver::transport::Interface} has three operations. \code{driver::uart::Interface} has six.
+\worth{5}
+
+\qpart{b} Write the \code{reg} and \code{status} nested namespaces of
+\file{include/driver/uart/register_map.hpp}, with the correct names and values, in the book's style.
+
+Then state why the constants are declared plain \code{constexpr} rather than
+\code{inline constexpr}, and what ``internal linkage at namespace scope'' costs here. And state why
+the map stores bit \textbf{positions} rather than masks, naming the file on the other side of the
+wire that this decision keeps identical and the one-line idiom that forms a mask at the use site.
+\worth{3}
+
+\qpart{c} \code{driver::uart::Stub} holds \code{volatile bool& myStop} as a member.
+
+State what that reference is for and who owns the flag it refers to. State what \code{read()} does
+with it when the scripted RX buffer runs out, and why that behaviour exists at all given that a stub
+has no reason to care how a caller's loop terminates.
+
+Then state what holding a reference member forces about the class's copy constructor, move
+constructor and default constructor, and why. \worth{2}
+
+\qpart{d} \code{driver::uart::Stub}'s \code{status()} returns \code{0}, its \code{errorFlags()}
+returns \code{0} and its \code{clearErrors()} does nothing, even though a real UART's \code{STATUS}
+is the register the whole driver is built around.
+
+State the general rule about what a test double must be faithful about and what it may ignore, and
+apply it here: say what would have to change about the stub before it could be used to test
+something new, and give an example of such a thing. \worth{2}
+
+% ------------------------------------------------------------------------------------------
+\question{Writing the protocol}{13}
+\label{exb:q:6}
+
+\qpart{a} Write \code{Uart::readReg(uint8_t addr) const} and
+\code{Uart::writeReg(uint8_t addr, uint32_t value)} in full, in the book's style, using only
+\code{myTransport}.
+
+Both perform one five-byte transaction. Get the command byte, the framing and the byte order right,
+and say in one line each what \code{readReg} does with the reply to the command byte and what
+\code{writeReg} does with all four of its replies.
+
+Then state what marking \code{readReg} \code{const} buys the class, and name the two public methods
+that depend on it. \worth{5}
+
+\qpart{b} Write \code{Uart::read(uint8_t& byte)}.
+
+Then, for one successful call on a peripheral whose RX FIFO front byte is \code{0x41}, write out the
+exact bytes a \code{driver::transport::Stub} would record, transaction by transaction, and give
+\code{beginCalls()} and \code{endCalls()}.
+
+Finally, write the scripting the test must perform before the call. The stub's helpers are
+\code{injectRxByte(uint8_t)} and \code{injectRxWord(uint32_t)}, the latter queuing four bytes most
+significant first. State how many bytes in total have to be queued for this one call and explain the
+discrepancy between that number and the number of register values involved. \worth{4}
+
+\qpart{c} Write \code{writeBlocking()} and \code{readBlocking()} from
+\file{driver/uart/blocking.hpp}.
+
+State why each is \code{inline}, why each takes \code{Interface&} rather than \code{Uart&}, and why
+they are free functions in a separate header rather than methods on the interface. \worth{2}
+
+\qpart{d} A candidate implements \code{readReg} by calling the driver's own \code{write()} to send
+each byte, reasoning that \code{write()} is ``the method that sends a byte''.
+
+State what happens when \code{status()} is called on this driver, in terms of the call sequence, and
+name the failure the ATmega328P actually exhibits. Then state the one-sentence rule that keeps the
+two apart. \worth{2}
+
+% ------------------------------------------------------------------------------------------
+\question{Writing the transport}{11}
+\label{exb:q:7}
+
+\qpart{a} Write \code{driver::transport::AvrSpi} in full: the constructor, the destructor and the
+three seam methods, in the book's style, reaching the registers through the platform header's
+\code{SCK}, \code{MOSI}, \code{MISO} and \code{SS} bit positions and the \code{DDRB}, \code{PORTB},
+\code{SPCR}, \code{SPSR} and \code{SPDR} registers.
+
+The class configures the ATmega328P as an SPI master at f\textsubscript{osc}/16, mode 0, MSB first.
+
+Then state exactly what the destructor must clear, what it must leave alone and why, and state why
+the constructor writes \code{SPCR = ...} rather than \code{SPCR |= ...}. \worth{5}
+
+\qpart{b} A candidate ships \code{~AvrSpi() noexcept override = default;}, on the grounds that the
+class has no members to release and the program never destroys it anyway.
+
+Name the principle broken and list what the constructor took that is now never given back. Then
+give one concrete way this harms code that runs afterwards, and one reason ``the program never
+destroys it'' is not a safe assumption in this codebase in particular. \worth{3}
+
+\qpart{c} The SPI transport needs no \code{F_CPU}; the debug logging over the ATmega's own USART
+does.
+
+State what sets the SPI \code{SCK} rate and what sets the USART's baud rate, and use that to explain
+the difference.
+
+Then: the Nano's fuses actually run it at 8\,MHz, but the build still defines
+\code{F_CPU=16000000UL}. State what happens to \code{SCK}, in figures, and whether the SPI link still
+works. State what happens to the debug USART, in figures, and what appears in the terminal. Say
+which of the two failures you would notice first and why that is unfortunate. \worth{3}
+
+% ------------------------------------------------------------------------------------------
+\question{The application, and the plan}{12}
+\label{exb:q:8}
+
+\qpart{a} Write \code{app::EchoNode} in full --- \file{include/app/echo_node.hpp} and
+\file{source/app/echo_node.cpp} --- in the book's AVR-portable style. It implements
+\code{app::Interface}, whose single operation is \code{void run(const volatile bool& stop) noexcept}.
+
+Include the member, the constructor, the deleted operations and the loop body. State why the
+receive is the non-blocking \code{read()} while the echo is \code{writeBlocking()}, and why
+\code{stop} is a \code{volatile bool} passed by \code{const} reference rather than an atomic or a
+return value. \worth{4}
+
+\qpart{b} Describe the host test for it precisely enough to write: which stub it runs over, what it
+queues, how the loop is made to terminate, and what it asserts and in what order. Host test code may
+use full modern C++.
+
+Then state what an additional case that queues \textbf{nothing} proves, name the implementation
+mistake it isolates, and say whether the three-byte case can catch that mistake too. \worth{3}
+
+\qpart{c} Give the five rungs of the bring-up ladder, in order, and for each name the single layer
+it adds that the previous rung did not exercise.
+
+State why the order is forced rather than a matter of taste, naming the register that settles it
+and the reason it can only be reached one way.
+
+Then a colleague proposes flashing \code{app::EchoNode} first: ``if it echoes, everything works, and
+if it does not we start debugging.'' Give two reasons this is a worse plan \textbf{even when it
+succeeds}. \worth{3}
+
+\qpart{d} A candidate writes \code{EchoNode} to hold \code{driver::uart::Uart& myUart} rather than
+\code{driver::uart::Interface& myUart}. Everything compiles, the bench works, and the class is
+otherwise identical.
+
+State what is now impossible, what has to be built before the class can be tested at all, and give
+the one-line fix. Then name the design decision of \chapref{6} that this makes concrete. \worth{2}

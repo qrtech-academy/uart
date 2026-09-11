@@ -7,6 +7,7 @@
 !makefile
 !Makefile
 !LICENSE
+!LICENSE-CONTENT
 
 # Ignore GHDL work libraries. The llvm and gcc backends also emit object files next to the sources,
 # where mcode emits none, so ignore those too rather than leaving one backend's users with a dirty

@@ -1,0 +1,163 @@
+% Section 2.2, from lectures/L02/appendix/b_uart_tx.md.
+
+\section{Designing \code{uart_tx.vhd}}
+\label{c2:sec:uart_tx}\label{c2:app:b}
+The transmitter turns one byte into the waveform a UART line carries: a low \textbf{start bit},
+then the eight data bits \textbf{least significant first}, then a high \textbf{stop bit}, with the
+line sitting \textbf{idle high} between frames. That default framing is called 8N1 (8 data bits, No
+parity, 1 stop bit), and it is the only framing this transmitter produces; parity and a second stop
+bit are left as an exercise.
+
+The transmitter owns no time of its own. It counts the \code{tick}s from \code{baud_gen}, sixteen
+to a bit, and changes the line only on bit boundaries. So the whole of its timing is ``hold this bit
+for sixteen ticks, then move to the next''.
+
+\subsection{Interface}
+\label{c2:sec:uart_tx_interface}
+
+\bookfigure{uart_tx}{Module \code{uart_tx}}{c2:fig:uart_tx}
+
+\begin{booktable}{@{}p{6.4em}p{2.4em}p{15.2em}L@{}}
+  \thead{Port} & \thead{Dir} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \code{clock} & in & \code{std_logic} & 50\,MHz system clock. \\
+  \code{reset_s2_n} & in & \code{std_logic} & Active-low synchronized reset. \\
+  \code{baud_tick} & in & \code{std_logic} & The 16x oversample tick from \code{baud_gen}. \\
+  \code{start} & in & \code{std_logic} & A one-cycle pulse: latch \code{data} and begin sending. \\
+  \code{data} & in & \code{std_logic_vector(7 downto 0)} & The byte to send. \\
+  \code{tx} & out & \code{std_logic} & The serial line, idle high. \\
+  \code{busy} & out & \code{std_logic} & High for the whole frame. \\
+  \code{done} & out & \code{std_logic} & A one-cycle pulse as the frame completes. \\
+\end{booktable}
+
+\code{uart_tx_tb} binds these ports positionally, as everything in this course does, so the order
+and types above must match exactly. \code{start} is a load command, not a level: it is looked at
+only while the transmitter is idle, so holding it high does not re-send. In \code{uart_top}
+(\chapref{1}) the TX feeder pulses \code{start} and pops the FIFO in the same cycle, so \code{data}
+is the FIFO's front byte.
+
+\subsection{The frame}
+\label{c2:sec:uart_tx_frame}
+Build the whole frame once, as a 10-bit vector, then just index it. This is the trick that keeps the
+rest of the module short:
+
+\begin{vhdlcode}
+frame <= STOP_BIT & data & START_BIT;   -- '1' & data(7 downto 0) & '0'
+\end{vhdlcode}
+
+\noindent Concatenation puts the leftmost item in the highest bits, so that vector reads:
+
+\begin{booktable}{@{}p{5em}*{10}{>{\centering\arraybackslash}X}@{}}
+  \thead{\code{frame}} & \thead{9} & \thead{8} & \thead{7} & \thead{6} & \thead{5} & \thead{4} &
+    \thead{3} & \thead{2} & \thead{1} & \thead{0} \\
+  \midrule
+  carries & stop & \code{d7} & \code{d6} & \code{d5} & \code{d4} & \code{d3} & \code{d2} &
+    \code{d1} & \code{d0} & start \\
+  value & \code{'1'} & & & & & & & & & \code{'0'} \\
+\end{booktable}
+
+\noindent where \code{d7} to \code{d0} stand for \code{data(7)} to \code{data(0)}. Read it from
+index \textbf{0 upward} and you get exactly the wire order: the start bit, then \code{data(0)}
+through \code{data(7)} least significant first, then the stop bit. So the transmitter never has to
+think about bit order again. It drives \code{tx <= frame(bit_idx)} and walks \code{bit_idx} from 0
+to 9.
+
+\subsection{Behaviour}
+\label{c2:sec:uart_tx_behaviour}
+Two states, \code{STATE_IDLE} and \code{STATE_SEND}, and two counters between them: \code{ticks}
+counts 0 to 15 within one bit, and \code{bit_idx} counts 0 to 9 across the frame.
+\begin{itemize}
+  \item On reset (\code{reset_s2_n} is low):
+  \begin{itemize}
+    \item \code{tx} goes high, the idle level.
+    \item \code{done} goes low and the state returns to \code{STATE_IDLE}.
+    \item \code{frame}, \code{bit_idx} and \code{ticks} are cleared.
+  \end{itemize}
+  \item On each rising edge of \code{clock}, while not in reset:
+  \begin{itemize}
+    \item \code{done} goes low, so any pulse from the previous cycle lasts exactly one clock.
+    \item In \textbf{\code{STATE_IDLE}}: \code{tx} is held high. If \code{start = '1'}, build
+      \code{frame} from \code{data}, as above; drive \code{tx} low, beginning the start bit; and
+      move to \code{STATE_SEND}.
+    \item In \textbf{\code{STATE_SEND}}: drive \code{tx <= frame(bit_idx)}, the bit currently being
+      sent. If \code{baud_tick = '1'}:
+    \begin{itemize}
+      \item If \code{ticks} has reached 15, this bit is finished: clear \code{ticks}. Then, if
+        \code{bit_idx} has reached 9, the stop bit is finished: raise \code{done} for this one
+        cycle, clear \code{bit_idx} and return to \code{STATE_IDLE}. If \code{bit_idx} has not
+        reached 9, increment it, moving to the next bit.
+      \item If \code{ticks} has not reached 15: increment \code{ticks}, holding the current bit.
+    \end{itemize}
+  \end{itemize}
+\end{itemize}
+
+\code{busy} is not part of that process at all. It is one concurrent line, high whenever the state
+machine is sending:
+
+\begin{vhdlcode}
+busy <= '1' when state = STATE_SEND else '0';
+\end{vhdlcode}
+
+\noindent Three details are worth getting right.
+
+The first is that \textbf{\code{ticks} and \code{bit_idx} advance only on a \code{baud_tick}}.
+Every other clock edge in \code{STATE_SEND} does nothing but re-drive \code{tx} with the same bit.
+At 115200~baud \code{BAUD_DIV} is 27, so that is 26 idle edges for every one that counts, which is
+the point: the transmitter is paced by \code{baud_gen}, not by the system clock.
+
+The second is that \textbf{\code{done} is cleared at the top of every clock edge and set only in
+the single cycle the frame ends}. Writing the default first and letting the specific case override
+it is what guarantees a one-cycle pulse with no extra counter. The two status outputs then carry
+different information. \code{busy} is a \emph{level} covering the whole frame, and is what the
+feeder in \code{uart_top} watches so it does not load another byte mid-frame. \code{done} is an
+\emph{event}, useful for counting frames or raising an interrupt, and it is not what moves the next
+byte along.
+
+The third is that \textbf{the frame is captured on \code{start}}, so the caller may change
+\code{data} on the very next cycle. The byte in flight lives in \code{frame}, not in the caller's
+register.
+
+\subsection{What the testbench pins down}
+\label{c2:sec:uart_tx_tb}
+\code{uart_tx_tb} generates \code{baud_tick} locally at one pulse per four clocks, so a bit is 64
+clocks and the frame simulates quickly. It checks that:
+\begin{itemize}
+  \item \code{tx} \textbf{idles high} before anything is sent.
+  \item \code{tx} \textbf{goes low within two bit periods} of \code{start}. This catches a
+    transmitter that never leaves the idle state; without it the testbench would wait for a falling
+    edge that never comes, and hang.
+  \item The \textbf{start bit is low} at its centre.
+  \item The \textbf{eight data bits match \code{0x53}, least significant first}, sampled a full bit
+    apart. This is the check that catches a transmitter sending most significant first.
+  \item The \textbf{stop bit is high}.
+\end{itemize}
+
+Sampling at bit centres rather than edges is the same discipline the receiver uses in \chapref{3},
+and it is why a one-tick timing slip does not fail the test while a wrong bit order does.
+
+The \textbf{choice of \code{0x53} is not arbitrary}, and it is worth knowing why before you write a
+testbench of your own. \code{0x53} is \code{0101_0011}, and reversed it is \code{1100_1010}, or
+\code{0xCA}: a different byte, so a frame packed most significant first fails on the very first data
+bit. A byte that reads the same backwards would not test the ordering at all: \code{0xA5} is
+\code{1010_0101} either way round, so both packings put exactly the same ten levels on the line and
+the testbench passes on both. Sixteen of the 256 bytes are such \textbf{bit-reversal palindromes}
+--- \code{0xA5}, \code{0x3C} and \code{0x5A} among them --- and choosing one of them turns a real
+check into a decoration. Exercise~\ref{c2:ex:2} makes you demonstrate it.
+
+Note what the testbench does \textbf{not} check. \code{busy} and \code{done} are bound but never
+asserted on, so a \code{busy} that rises one cycle late still passes here. That bug has no effect
+until \chapref{5}, where the TX feeder, still seeing \code{busy} low on the cycle after a load, pops
+a second byte that the transmitter, already sending, ignores. The byte is lost, and because
+\code{uart_top_tb} sends a single byte, not even the system testbench shows it.
+
+\subsection{Where it fits}
+\label{c2:sec:uart_tx_fits}
+\code{uart_tx} is the output half of the datapath. In \code{uart_top} (\chapref{1}) its \code{data}
+comes from the TX FIFO and its \code{start} and \code{busy} drive the feeder that empties that FIFO
+one byte at a time; its \code{tx} pin leaves the FPGA as the peripheral's serial output. It shares
+\code{baud_gen}'s single \code{tick} with the receiver built in \chapref{3}, which is what keeps the
+two halves on one time base.
+
+\subsection{What's ahead}
+The exercises in \secref{c2:sec:exercises} build \code{baud_gen} and \code{uart_tx} from these two
+sections, run their testbenches, and probe the design decisions the tests depend on.

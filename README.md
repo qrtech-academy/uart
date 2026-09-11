@@ -37,7 +37,7 @@ Because the ATmega's own UART is not the subject, the *pattern* is. Here the ATm
 CPU to a memory-mapped peripheral it does not contain, reaching it across a chip boundary. That
 is the real situation with FPGA and ASIC peripherals, and it is what makes the skill transfer to
 the next protocol. Building a UART this way is not the efficient way to get a UART; it is the way
-to learn the boundary; with a protocol simple enough that nothing about the boundary is hidden
+to learn the boundary, with a protocol simple enough that nothing about the boundary is hidden
 by the protocol's own complexity.
 
 ---
@@ -49,9 +49,9 @@ serial peripheral there is. Topics include:
   stop bit(s), and how baud rate maps to a bit period.
 * A baud-rate generator, a transmitter, and an oversampling receiver in VHDL, each
   testbench-verified.
-* Register semantics over port semantics: sticky, poll-able `STATUS` bits built from single- cycle
-  pulses; a write-triggered TX push; a read-then-pop RX path, and why a read that pops a FIFO needs
-  the same commit-on-completion, abort-safe discipline as a write.
+* Register semantics over port semantics: poll-able `STATUS` bits and sticky `ERROR_FLAGS` bits
+  built from single-cycle pulses; a write-triggered TX push; a read-then-pop RX path, and why a read
+  that pops a FIFO needs the same commit-on-completion, abort-safe discipline as a write.
 * The shared [UART register protocol](./protocol/uart_register_protocol.md) both halves implement
   against, this course's single source of truth.
 * A `driver::transport::Interface` seam under the C++ driver: `driver::uart::Uart` implements
@@ -78,7 +78,10 @@ participant writes the peripheral behind it (register bank, `uart_top`) and the 
 not the bridge itself. The [protocol spec](./protocol/uart_register_protocol.md) documents the
 transport fully, so nothing about it is magic, only out of scope.
 
-The box stays closed for one more course, since I2C reuses the same control plane, and is opened in the one after: building `spi_slave` and `spi_reg_bridge` from the wire up, clock-domain crossing and all, is the whole subject of SPI: The MCU-FPGA Transport, from the Wire Up. This course introduces the pattern with the transport given.
+The box stays closed for one more course, since I2C reuses the same control plane, and is opened
+in the one after: building `spi_slave` and `spi_reg_bridge` from the wire up, clock-domain
+crossing and all, is the whole subject of SPI: The MCU-FPGA Transport, from the Wire Up. This
+course introduces the pattern with the transport given.
 
 ---
 
@@ -118,6 +121,10 @@ lectures/    Lecture READMEs, L01-L10.
 exam/        Two written papers and their solutions. Optional, and marked by nobody here.
 protocol/    The UART register protocol specification - the contract both halves implement,
              including the provided SPI transport framing.
+ci/          CI scripts: build the C++ and run its host tests, simulate the VHDL, check formatting.
+diagrams/    The Python that draws the lectures' figures, and the book's. See diagrams/README.md.
+libs/        The QAcademy Test framework, a submodule, which the host test suites build against.
+book/        The course typeset as a book with LuaLaTeX; `make -C book` builds the PDF.
 ```
 
 ---
@@ -133,3 +140,24 @@ testbench whose modules are not written yet, is skipped rather than failed.
 
 ---
 
+## The Book
+The whole course is also available as a book: [UART: Hardware, Driver &
+Integration](./book/uart.pdf), typeset from the lectures, the protocol and the exam papers, with the
+answers to every exercise part that is not code. It is built from the sources in
+[`book/`](./book/README.md), which also say how to build it yourself (`make -C book`) and how a new
+edition is released.
+
+---
+
+## License
+The source code is released under the [MIT License](./LICENSE): the provided VHDL and the
+testbenches, the firmware's platform headers, runtime stubs and host test suites, the build, CI and
+diagram scripts, and the book's build files.
+
+The course material is licensed under [CC BY-NC-SA 4.0](./LICENSE-CONTENT): the lectures, exercises,
+protocol specification and exam papers, the other Markdown documents, the figures, and the book
+typeset from them. You may share and adapt it for any non-commercial purpose, with credit, as long
+as what you share carries the same license. The code examples printed in the lectures and in the
+book may also be used under the MIT License. The submodule `libs/test` carries its own license.
+
+---

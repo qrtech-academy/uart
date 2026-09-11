@@ -1,0 +1,103 @@
+% Section 2.1, from lectures/L02/appendix/a_baud_gen.md.
+
+\section{Designing \code{baud_gen.vhd}}
+\label{c2:sec:baud_gen}\label{c2:app:a}
+A UART has no clock line. The transmitter and the receiver each keep their own time and agree only
+on a number: the baud rate, the number of bits sent per second. Everything in this peripheral that
+has to happen ``once per bit'' is paced from a single enable pulse, and \code{baud_gen} is what
+produces it.
+
+It does not produce one pulse per bit, though; it produces sixteen. The receiver you will build in
+\chapref{3} cannot see where a bit begins, so it samples the line sixteen times per bit and picks
+the middle sample (\secref{c3:app:b} works through that sampling). For the transmitter and the
+receiver to share one time base, that time base has to tick at the finer, sixteen-times rate; the
+transmitter simply counts sixteen ticks per bit. So \code{baud_gen} divides the 50\,MHz system clock
+down to \code{16 * baud}, and every other datapath block treats one \code{tick} as ``one sixteenth
+of a bit has passed''.
+
+\subsection{Interface}
+\label{c2:sec:baud_gen_interface}
+
+\bookfigure{baud_gen}{Module \code{baud_gen}}{c2:fig:baud_gen}
+
+\begin{booktable}{@{}p{6.4em}p{2.4em}p{12.8em}L@{}}
+  \thead{Port} & \thead{Dir} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \code{clock} & in & \code{std_logic} & 50\,MHz system clock. \\
+  \code{reset_s2_n} & in & \code{std_logic} & Active-low synchronized reset. \\
+  \code{div} & in & \code{natural range 1 to 65535} & Clocks per tick:
+    \code{div = clock / (16 * baud)}. \\
+  \code{tick} & out & \code{std_logic} & One-cycle pulse every \code{div} clocks. \\
+\end{booktable}
+
+\code{baud_gen_tb} binds these ports positionally, as everything in this course does, so the order
+and types above must match exactly. \code{div} is a plain \code{natural}, not a vector: the register
+bank (\chapref{5}) holds the value as \code{BAUD_DIV} and hands it over already converted, so this
+block never touches a \code{std_logic_vector} or \code{numeric_std}.
+
+\code{div} is expected to be at least 1. The formula gives, for a 50\,MHz clock, \code{div = 27} for
+115200~baud and \code{326} for 9600. The testbench uses \code{div = 4}, so that a tick is only four
+clocks apart and the simulation is short.
+
+\subsection{Behaviour}
+\label{c2:sec:baud_gen_behaviour}
+One counter, one comparison:
+\begin{itemize}
+  \item On system reset (\code{reset_s2_n} is low):
+  \begin{itemize}
+    \item \code{tick} goes low.
+    \item The counter is reset to zero.
+  \end{itemize}
+  \item On each rising edge of \code{clock}, while not in reset:
+  \begin{itemize}
+    \item If the counter has reached \code{div - 1}: \code{tick} goes high for this one cycle, and
+      the counter is reset to zero.
+    \item If the counter has not reached \code{div - 1}: \code{tick} stays low, and the counter is
+      incremented.
+  \end{itemize}
+\end{itemize}
+
+So \code{tick} is high for exactly one clock in every \code{div}, and the mean tick rate is
+\code{clock / div}. That is \code{16 * baud} only to within the rounding of \code{div}, which is an
+integer: at 115200 the exact divider is 27.126, so \code{div = 27} runs about 0.47\,\% fast. That
+margin is what the receiver's mid-bit sampling in \chapref{3} is there to absorb.
+
+Two details are worth getting right. The first is that \textbf{the comparison is
+\code{counter >= div - 1}, not \code{counter = div - 1}}. With a stable \code{div} the two behave
+identically, since the counter reloads the instant it reaches the threshold and never passes it. The
+\code{>=} form matters only at the edges: if \code{div} were ever 0, the equality test would never
+fire and the counter would run free until it overflowed its range, but \code{>=} catches it and
+simply ticks every cycle. It also means a \code{div} changed mid-count is corrected on the next
+edge rather than after a wrap. Robustness for one character of typing.
+
+The second is that \textbf{the reset is asserted asynchronously}. \code{reset_s2_n} sits in the
+process's sensitivity list, so the moment it goes low the counter clears and \code{tick} drops, with
+no clock edge needed. That is the house style for every block here, provided and student-written
+alike. It is safe precisely because \code{reset_s2_n} has \emph{already} been synchronized:
+\code{uart_top} runs the raw \code{reset_n} through the provided \code{reset_sync} once
+(\secref{c1:app:b}), so the release is lined up with the clock before any block sees it.
+
+\code{tick} is a registered output, so it is glitch-free and one clock wide, which is exactly what a
+downstream ``count sixteen of these'' expects.
+
+\subsection{What the testbench pins down}
+\label{c2:sec:baud_gen_tb}
+\code{baud_gen_tb} drives \code{div = 4}, releases reset, then finds the first \code{tick} and
+measures the gap to each of the next three. Every gap must be exactly four clocks, and a tick that
+arrives early or late fails with the measured count in the message.
+
+That is the whole contract: a tick every \code{div} clocks, steadily. The testbench does not check
+the \code{16 * baud} arithmetic, because that lives in the \emph{value} of \code{div}, which the
+register bank supplies; \code{baud_gen} only has to divide by whatever number it is given.
+
+\subsection{Where it fits}
+\label{c2:sec:baud_gen_fits}
+\code{baud_gen} sits at the root of the datapath. Its single \code{tick} feeds the transmitter you
+build next in this chapter and the receiver in \chapref{3}; both count sixteen ticks to a bit, so
+both stay locked to the same time base without any handshake between them. In \code{uart_top}
+(\chapref{1}) its \code{div} comes from the \code{BAUD_DIV} register, so software sets the baud rate
+by writing one number.
+
+\subsection{What's ahead}
+\secref{c2:sec:uart_tx} builds \code{uart_tx}, the transmitter. It takes the \code{tick} you just
+produced and turns a byte into a framed serial waveform on the \code{tx} line.

@@ -1,0 +1,214 @@
+% Section 8.3, from lectures/L08/appendix/b_exercises.md.
+
+\section{Exercises}
+\label{c8:sec:exercises}\label{c8:app:b}
+
+\begin{aside}
+\textbf{How to work these.} These exercises supply the half \chapref{7} left out: a transport that
+can be scripted, so that the provided host suite can drive the real \code{Uart} with no hardware,
+plus the blocking helpers on top of the non-blocking core. You write the stub and the helpers. A
+small demo, \file{main.cpp}, is provided too, listed in full in Exercise~\ref{c8:ex:2.2}.
+
+\textbf{How to check your work.} The provided host suite, \file{fw/test/uart/uart_test.cpp}, run by
+\code{make test}, is the check, and it is the first one the C++ half of the book has been able to
+run. It is guarded on all four driver headers --- \file{register_map.hpp} and \file{uart.hpp} from
+Chapters~6 and~7, \file{stub.hpp} and \file{blocking.hpp} from here --- so it reports there is
+nothing to do until the last of them exists; adding the two files below is what switches it on.
+
+Every exercise in this chapter is code, so Appendix~\ref{sol:ch} has nothing to add here.
+\end{aside}
+
+Work in \file{fw/}. You will add:
+
+\begin{console}
+include/
+    driver/
+        uart/
+            blocking.hpp
+        transport/
+            stub.hpp
+source/
+    main.cpp            (provided; the host demo, copied from the last exercise)
+test/
+    uart/
+        uart_test.cpp   (provided; the host suite, already in the repository)
+\end{console}
+
+The stub joins the transport interface in \code{driver::transport} (the demo may use a small
+\code{app} namespace). These conventions apply to \file{include/} and \file{source/}, which have to
+cross-compile for the ATmega; \file{test/} and \file{include/arch/test/} are host-only and never
+reach avr-gcc, which is why the provided suites next to them use \code{<cstdint>}, \code{std::},
+\code{namespace driver::uart::test} and \code{[[nodiscard]]} freely. Follow the same AVR-portable
+conventions as in \chapref{6} (\secref{c6:sec:exercises}): \code{<stdint.h>} and bare \code{uint8_t}
+and \code{size_t} (no \code{std::}), nested namespace blocks (not
+\code{namespace driver::uart { ... }}), and no \code{[[nodiscard]]}. Build the application with
+\code{make build} and the tests with \code{make test}.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The Scripted Stub}
+\label{c8:set:1}
+
+\exercise{\code{driver::transport::Stub}}{C++}
+\label{c8:ex:1.1}
+In \file{include/driver/transport/stub.hpp}, build a header-only \code{driver::transport::Stub} that
+implements \code{driver::transport::Interface} so that the driver can be tested with no hardware. It
+is the wire, scripted, and it has three jobs.
+
+The provided test suite binds to this stub by name, so the names below are part of the exercise
+rather than suggestions: a stub with the right behaviour but different member names will not compile
+against \file{test/uart/uart_test.cpp}. It needs a default constructor, since every test builds one
+with \code{transport::Stub stub{};}.
+
+That suite opens with four \code{TransportStub} cases that check the stub itself, before any driver
+case runs. They are there because every \code{Uart} case reads what the stub was scripted to reply,
+so a stub bug surfaces as a \emph{driver} failure: queue the four bytes least significant first, for
+instance, and the suite reports \code{Uart.WriteWhenReadyPushesTxData} red, pointing at
+\code{readReg()}, which is correct. Get the \code{TransportStub} cases green first and the failures
+below are genuinely yours.
+
+It must \textbf{record} every call. Append each byte passed to \code{transfer()} to a fixed-size
+\code{uint8_t} buffer with a running length, where a capacity of 100 bytes is plenty for these
+tests. Expose that record through \code{txLen()}, returning the number of bytes captured, and
+\code{txByte(index)}, returning the byte at a position and \code{0} for an index past the end. Both
+must be \textbf{\code{const}}, because the tests inspect the stub through a
+\code{const transport::Stub&}. Keep two \code{uint16_t} counters as well, one bumped by
+\code{begin()} and one by \code{end()}, exposed as \code{beginCalls()} and \code{endCalls()}, also
+\code{const}. These are not optional: the suite asserts on \code{beginCalls()} in eight separate cases
+and on \code{endCalls()} in two, because they are what proves a transaction was framed exactly once and that the two stay balanced.
+
+It must \textbf{play back} bytes on \code{transfer()}, returning the next byte from a preloaded
+response buffer tracked by an index, and returning \code{0x00} once that buffer is exhausted. This is
+the \code{MISO} the driver reads.
+
+And it must offer helpers to script that response. \code{injectRxByte(uint8_t)} queues a single
+byte, and \code{injectRxWord(uint32_t)} queues a whole register value \textbf{most significant
+first}, so that a \code{readReg} sees exactly that value. \code{clearRxData()} resets the reply
+buffer and its index, so that one test can script several reads.
+
+Give the two a \emph{different name} rather than overloading one name on width. An integer literal
+converts equally well to \code{uint8_t} and to \code{uint32_t}, so an overload pair would make
+\code{stub.injectRx(0x41)} ambiguous and force every call site to spell out the type of its argument.
+Two names cost nothing and keep the call sites readable, which is why the UART stub of \chapref{6} is
+built the same way.
+
+Two fixed \code{uint8_t} buffers with a length each, one for what the driver sent and one for the
+scripted replies, are all it takes; no dynamic containers are needed. Both are \textbf{linear
+buffers, not FIFOs}: the record buffer is a write-only append log the test reads back afterwards, and
+the reply buffer is read front to back through an advancing index. No circular wraparound, no
+pop-with-shift; just reset each length, and the read index, to zero at the start of a test.
+
+Keep it dependency-injected: a test constructs a \code{Stub}, constructs a \code{Uart} over it,
+drives the driver, and then asserts against the \code{Stub}'s record.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{Using the Driver}
+\label{c8:set:2}
+
+\exercise{Blocking helpers}{C++}
+\label{c8:ex:2.1}
+The interface's \code{write()} and \code{read()} are non-blocking by design. Build the thin blocking
+convenience on top, in a new header \file{include/driver/uart/blocking.hpp}, as free functions in the
+\code{driver::uart} namespace. Keep the same AVR-portable style as the rest of the driver
+(\code{<stdint.h>} and bare types, nested namespace blocks). Both take \code{Interface&}, not
+\code{Uart&}, so they work over any implementation; \code{uart.write} and \code{uart.read} dispatch
+to the concrete driver at run time.
+
+\task{a) Write a byte, blocking}
+Add a free function \code{writeBlocking()} that sends one byte, waiting until the transmitter accepts
+it. It takes a \code{driver::uart::Interface&}, the driver, and a \code{uint8_t}, the byte to send;
+it spins on \code{uart.write(byte)} until that returns \code{true} and then returns nothing. Mark it
+\code{inline}, since it is defined in a header and that avoids a one-definition-rule violation once
+more than one file includes it, and mark it \code{noexcept}.
+
+\task{b) Read a byte, blocking}
+Add a free function \code{readBlocking()} that receives one byte, waiting until one is available. It
+takes a \code{driver::uart::Interface&}, the driver, and a reference to a \code{uint8_t} where the
+received byte is stored; it spins on \code{uart.read(byte)} until that returns \code{true} and then
+returns nothing. It is \code{inline} and \code{noexcept} for the same reasons.
+
+Each is a one-line spin loop, so header-only \code{inline} functions are all you need; no
+\file{.cpp}. They belong above the driver, not inside it: the core stays deterministic and testable,
+and the spinning lives where a caller opts into it.
+
+\exercise{The provided demo}{C++}
+\label{c8:ex:2.2}
+Use this test program to exercise communication end to end. It is \textbf{provided}, like the host
+suite; you do not write it. Create \file{source/main.cpp} and copy it in as it stands:
+
+\begin{cppcode}
+/**
+ * @brief Application entry point.
+ */
+#include <stdint.h>
+
+#include "driver/transport/stub.hpp"
+#include "driver/uart/blocking.hpp"
+#include "driver/uart/register_map.hpp"
+#include "driver/uart/uart.hpp"
+
+using namespace driver;
+
+/**
+ * @brief Application entry point.
+ *
+ *        On the host, the demo uses a scripted transport::Stub because no real
+ *        UART is available. It reports TX ready and returns one received byte so
+ *        the blocking calls can complete. On the ATmega328P (L09), the real
+ *        transport reports the actual hardware status.
+ *
+ *        Each register read transfers one command byte followed by four data
+ *        bytes, so scripted responses begin with a command-phase placeholder.
+ *        Because writes also consume scripted bytes, each response is installed
+ *        immediately before use and clearRxData() resets the script between
+ *        phases.
+ *
+ * @return 0 on termination of the program.
+ */
+int main()
+{
+    constexpr uint16_t baudDiv{27U};
+    constexpr uint8_t txByte{0x7FU};
+    constexpr uint8_t dummyCmd{0U};
+
+    constexpr uint32_t rxData{txByte};
+    constexpr uint32_t txReady{static_cast<uint32_t>(1U << uart::status::TX_READY)};
+    constexpr uint32_t rxValid{static_cast<uint32_t>(1U << uart::status::RX_VALID)};
+
+    transport::Stub transport{};
+    uart::Uart uart{transport};
+    uart.configure(baudDiv);
+
+    // Report TX ready, then send a byte.
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(txReady);
+    uart::writeBlocking(uart, txByte);
+
+    // Report RX valid and hand back the byte, then receive it.
+    transport.clearRxData();
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(rxValid);
+    transport.injectRxByte(dummyCmd);
+    transport.injectRxWord(rxData);
+
+    uint8_t rxByte{};
+    uart::readBlocking(uart, rxByte);
+    return 0;
+}
+\end{cppcode}
+
+It shows the API end to end: it constructs a \code{Uart} over a \code{driver::transport::Stub},
+\code{configure()}s it, then uses your \code{writeBlocking} and \code{readBlocking} to send a byte and
+receive one back. Because the blocking calls spin until the transport reports ready, the demo
+scripts the stub just before each call so that it completes instead of spinning forever. On the
+target there is nothing to script: \chapref{9} writes a separate freestanding \code{main} in
+\file{fw/avr/} that builds the same \code{Uart} over \code{AvrSpi}, and the real transport reports
+the actual hardware status.
+
+Read it, then run \code{make build} and \code{./uart_firmware}: it exits cleanly once your
+\code{Uart}, \code{Stub} and blocking helpers are correct. The demo is illustration, not a test; the
+real checking is \code{make test}.
+
+\subsection*{What's ahead}
+\chapref{9} replaces the stub with \code{AvrSpi}, the real SPI on the ATmega328P, and the driver, the
+interface and the register map all run unchanged over the wire. The suite you just turned green runs
+unchanged too, which is the return on putting the seam where \chapref{6} put it.

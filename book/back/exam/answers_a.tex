@@ -1,0 +1,1399 @@
+% Appendix F: the model answers to Paper A, from exam/paper_a_solutions.md.
+
+% The answers' headings are labelled ansa:q:N.
+\renewcommand{\answerprefix}{ansa}
+
+\chapter{Model Answers to Paper A}
+\label{ansa:ch:answers}
+
+Marks are shown per part. Method carries them: a correct derivation with a slip in it is worth more
+than a correct answer with no working, and later parts consume earlier ones, so an error should be
+followed through rather than penalised twice. A candidate who decodes the register map wrongly in
+Question~1 and then uses their own map consistently in Questions~4 and~6 loses the marks once.
+
+Where a part asks for VHDL, mark the \textbf{hardware described}, not the syntax. Where it asks for
+C++, mark the \textbf{byte order, the ordering of register accesses, and the qualifiers that carry
+meaning}, not the punctuation.
+
+Two parts, 2(d) and 4(d), ask what a provided testbench \emph{cannot} catch. An answer that treats a
+passing testbench as proof has missed the point of the question however correct the rest of it is,
+and those parts are marked accordingly.
+
+% ==========================================================================================
+\answersection{1}{The map, the top, and what a clean analysis does not prove}{12}
+
+\answerpart{a}{3}
+\code{0x0000000D} is \code{1101} in its low nibble.
+
+\begin{booktable}{@{}lp{7.2em}lLl@{}}
+  \thead{Bit} & \thead{Constant} & \thead{Position} & \thead{Meaning} & \thead{In \code{0x0D}} \\
+  \midrule
+  0 & \code{ST_TX_READY} & 0 & the TX FIFO is not full & \textbf{set} \\
+  1 & \code{ST_RX_VALID} & 1 & the RX FIFO is not empty & clear \\
+  2 & \code{ST_ERROR} & 2 & one or more \code{ERROR_FLAGS} bits set & \textbf{set} \\
+  3 & \code{ST_TX_IDLE} & 3 & the TX FIFO empty \textbf{and} the line idle & \textbf{set} \\
+\end{booktable}
+\credit{1 mark for all four names and positions, correctly read against the value}
+
+\textbf{The state.} The transmitter has nothing to send and nothing in flight --- TX-idle implies
+TX-ready, which is why both are set --- no received byte is waiting, and at least one error has been
+latched since the flags were last cleared. In this book's build that error can only be a framing
+error, since \code{ER_FRAMING} is the only flag with a producer.
+
+\textbf{What each call does.}
+\begin{itemize}
+  \item \code{write(0x41)} reads \code{STATUS}, finds \code{TX_READY} set, writes \code{0x41} to
+    \code{TX_DATA} and returns \code{true}. Two transactions, ten bytes.
+  \item \code{read(byte)} reads \code{STATUS}, finds \code{RX_VALID} clear, and returns
+    \code{false}. It performs \textbf{no} \code{RX_DATA} read and \textbf{no} \code{RX_POP} write
+    --- that omission is the contract, not an optimization, and it is what one of the host tests
+    exists to check.
+\end{itemize}
+\worth{1}
+
+\textbf{\code{ERROR_FLAGS}.} Index \textbf{6}, offset \textbf{\code{0x18}} (the index is the offset
+divided by four). The command byte to read it is \textbf{\code{0x06}}; to write it,
+\textbf{\code{0x86}}, bit~7 being the write bit. \worth{1}
+
+\answerpart{b}{3}
+\textbf{\code{ghdl -a} accepts it.} Both ports are \code{in std_logic}, so swapping them produces a
+perfectly legal entity: the analyzer checks that each formal has a type and a direction, and both
+still do. There is nothing here for it to object to. \worth{1}
+
+\textbf{Elaboration accepts it too.} \code{uart_top_tb} binds positionally, so it connects its own
+\code{sclk} signal to the entity's third port and its \code{mosi} signal to the fourth. Names never
+enter into it. Every type and direction matches, so elaboration succeeds --- and the same is true
+inside \code{uart_top}, where the architecture's positional \code{port map} into \code{spi_slave}
+now hands the SPI clock line to \code{mosi} and the data line to \code{sclk}.
+
+\textbf{Where it surfaces.} The first check anywhere in the course that fails is
+\textbf{\code{uart_top_tb}, at the end of \chapref{5}} --- the first time the system testbench runs
+at all. Before that it is \emph{skipped}, not passed: its datapath blocks do not exist. So a wiring
+mistake made in \chapref{1} sits undetected for four chapters and then arrives as an SPI transaction
+that produces nothing. \worth{1}
+
+\textbf{The change that would move it forward.} Bind by \textbf{name} rather than by position, in
+the testbench and in every instantiation. With named association the entity's port \emph{order}
+stops mattering: both the testbench and \code{uart_top}'s architecture refer to \code{sclk} by
+name, so moving it from position three to position four changes nothing and the transposition
+becomes a no-op instead of a bug.
+
+The cost is the reason the book did not: named association is verbose, it lets the declared order
+drift from the documented one, and it changes what ``the contract'' means. This book made the
+\textbf{order and the types} the contract precisely so that a port table in a chapter is a complete
+specification of a module --- rename every signal and everything still binds. That is a real benefit,
+and this failure is its real price. \worth{1}
+
+Accept ``give the ports distinct subtypes so that a swap is a type error'' as a second answer, with
+the observation that it is impractical for a bus of \code{std_logic} pins.
+
+\answerpart{c}{4}
+\noindent\textbf{(i)}\enspace\textbf{The mechanism is driver resolution.} \code{std_logic} is a
+\emph{resolved} type: a signal with more than one driver takes the value its resolution function
+computes from all of them, bit by bit. The placeholder is a concurrent assignment and therefore a
+driver; \code{uart_regs}' \code{reg_rdata} output is a second one. Resolving \code{'1'} against
+\code{'0'} gives \code{'X'}; resolving \code{'0'} against \code{'0'} gives \code{'0'}. For a
+read-back of \code{0x00000004}, the low four bits carry:
+
+\begin{narrowtable}{@{}cccc@{}}
+  \thead{Bit} & \thead{Bank drives} & \thead{Placeholder drives} & \thead{Resolved} \\
+  \midrule
+  3 & \code{'0'} & \code{'0'} & \code{'0'} \\
+  2 & \code{'1'} & \code{'0'} & \textbf{\code{'X'}} \\
+  1 & \code{'0'} & \code{'0'} & \code{'0'} \\
+  0 & \code{'0'} & \code{'0'} & \code{'0'} \\
+\end{narrowtable}
+\worth{1}
+
+\textbf{What the testbench reports.} The \code{'X'} propagates out through the bridge and
+\code{spi_slave} onto \code{MISO} and into the testbench's captured word, so
+\code{rd(15 downto 0) = x"0004"} is false and the \code{BAUD_DIV} read-back assertion fires. The
+symptom generalizes: \textbf{every bit the bank drives \code{'1'} comes back unknown}, so the value
+looks like the one you wrote with all its ones missing. That is the signature to recognize, and the
+fix is to delete the \chapref{1} placeholder line, exactly as Exercise~\ref{c5:ex:2} instructs.
+\worth{1}
+
+An answer that says ``two drivers, so it fails'' without naming resolution or without the per-bit
+result gets one of the two marks.
+
+\medskip\noindent\textbf{(ii)}\enspace\textbf{The value and the message.} \code{to_integer} on an
+all-\code{'U'} vector prints
+
+\begin{console}
+NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0
+\end{console}
+
+\noindent and returns \textbf{0}. \worth{1}
+
+\textbf{Why 0 is worse than wrong.} \code{baud_gen}'s \code{div} port is declared
+\code{natural range 1 to 65535}, so 0 is not a bad baud rate --- it is \textbf{outside the port's
+subtype}, and binding it is a run-time bound-check failure that aborts the simulation. A wrong
+divider you could at least see on a waveform; this one stops the run before there is a waveform. And
+the library chose the value, not the designer, which is the deeper objection: a warning that
+silently substitutes a value has made a design decision on your behalf.
+
+\textbf{The guard.}
+
+\begin{vhdlcode}
+baud_div_int <= 1 when is_x(baud_div) or unsigned(baud_div) = 0
+              else to_integer(unsigned(baud_div));
+\end{vhdlcode}
+
+\begin{itemize}
+  \item \code{is_x(baud_div)} covers the \textbf{metavalue} case: before \chapref{5} nothing drives
+    \code{baud_div}, so it sits at all-\code{'U'}.
+  \item \code{unsigned(baud_div) = 0} covers the \textbf{legitimate zero} that arrives once
+    \code{uart_regs} exists: \code{BAUD_DIV} holds whatever the bank reset it to until software
+    writes a divider, and that reset value is a real, well-defined \code{0}.
+\end{itemize}
+\worth{1}
+
+\code{1} is chosen because it is the smallest value the port accepts. Nothing useful is transmitted
+at either value, so the only thing that matters is that the design elaborates and runs. Worth a
+comment rather than a mark: \code{or} on \code{BOOLEAN} is short-circuit in VHDL, so the comparison
+is never evaluated on the all-\code{'U'} vector, and the metavalue case stays warning-free as well
+as legal.
+
+\answerpart{d}{2}
+\textbf{The port is \code{sync}'s \code{reset_s2_n} \emph{input}.} \code{sync} \textbf{consumes} the
+synchronized reset; a module that requires a clean reset as an input cannot be the module that
+manufactures one. Try it and the dependency is circular: \code{sync}'s own two flops would need
+\code{reset_s2_n} to start from a known state, and \code{reset_s2_n} is the thing they were
+supposed to produce. \worth{1}
+
+\textbf{What the pattern buys.}
+\begin{itemize}
+  \item \textbf{Assert asynchronously.} The instant \code{reset_n} falls, every flop clears with no
+    clock edge needed. That matters because the clock may not be running, or may be about to start,
+    and a reset that requires a clock cannot rescue a design whose clock has not arrived.
+  \item \textbf{Release synchronously.} The release is lined up with \code{clock} by
+    \code{reset_sync}'s own two flops, so every flip-flop in the design leaves reset on the same
+    edge.
+\end{itemize}
+
+Released asynchronously, the rising edge of \code{reset_n} could land inside some flops'
+setup-and-hold window and not others'. Those flops would leave reset one cycle later than the rest,
+so the design starts \textbf{half-reset}: a state machine already in \code{STATE_IDLE} beside a tick
+counter that never cleared, or a FIFO whose \code{head} reset while its \code{tail} did not. That is
+a state the design's own logic never anticipates, and it happens at a rate that depends on where the
+button bounced. \worth{1}
+
+% ==========================================================================================
+\answersection{2}{The wire, the divider, and the transmitter}{13}
+
+\answerpart{a}{4}
+\code{0x53} is \code{0101 0011}, so \code{data(7 downto 0) = "01010011"}.
+
+\textbf{The frame.} Concatenation puts the leftmost item in the highest bits, so
+\code{frame <= STOP_BIT & data & START_BIT} gives
+
+\begin{console}
+frame(9 downto 0) = '1' & "01010011" & '0' = "1010100110"
+\end{console}
+
+\begin{booktable}{@{}lcccccccccc@{}}
+  index & 9 & 8 & 7 & 6 & 5 & 4 & 3 & 2 & 1 & 0 \\
+  \midrule
+  value & 1 & 0 & 1 & 0 & 1 & 0 & 0 & 1 & 1 & 0 \\
+  is & stop & \code{d7} & \code{d6} & \code{d5} & \code{d4} & \code{d3} & \code{d2} & \code{d1} &
+    \code{d0} & start \\
+\end{booktable}
+\worth{1}
+
+\textbf{The wire order.} \code{bit_idx} walks 0 upward, so the line carries \code{frame(0)} first:
+
+\begin{booktable}{@{}lcccccccccc@{}}
+  time order & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 \\
+  \midrule
+  \code{frame} index & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 \\
+  level & 0 & 1 & 1 & 0 & 0 & 1 & 0 & 1 & 0 & 1 \\
+  is & start & \code{d0} & \code{d1} & \code{d2} & \code{d3} & \code{d4} & \code{d5} & \code{d6} &
+    \code{d7} & stop \\
+\end{booktable}
+\credit{2 marks: 1 for the order, 1 for the levels}
+
+That is the whole point of building the frame as a vector: read it from index 0 upward and it
+\emph{is} the wire order, start bit first and data least significant first, so the transmitter never
+thinks about bit order again.
+
+\textbf{The timing.} Ten bits at sixteen ticks each is \textbf{160 \code{baud_tick}s}. At
+115200~baud \code{BAUD_DIV = 27}, so that is $160 \times 27 = $ \textbf{4320 clock cycles}, or
+$4320 \times 20$\,ns $=$ \textbf{86.4\,µs}. \worth{1}
+
+\answerpart{b}{3}
+\begin{console}
+exact divider = 50_000_000 / (16 x 57_600) = 50_000_000 / 921_600 = 54.2535
+BAUD_DIV      = round(54.2535) = 54
+\end{console}
+\worth{1}
+
+\begin{console}
+tick rate  = 50_000_000 / 54 = 925_925.9 Hz
+baud rate  = 925_925.9 / 16  = 57_870.4 baud
+error      = (57_870.4 - 57_600) / 57_600 = +0.47%   (fast)
+\end{console}
+\worth{1}
+
+\textbf{Why it is tolerated, and what has to be true.} The receiver does not run free: it hunts for
+the falling edge of every start bit and restarts its own tick counter there. So the error does not
+accumulate across a stream of bytes, only across the ten bit periods of a single frame.
+
+The condition is therefore specific: the \textbf{stop-bit sample must still land inside the stop
+bit}, nine and a half bit periods after the edge that started the frame. That is the last and
+worst-placed sample in the frame, so it is the one that decides. Question~3 puts the budget at
+roughly plus or minus five percent combined for an ideally centred sample; 0.47\,\% at this end
+leaves the peer almost all of it. \worth{1}
+
+An answer that says only ``it resynchronizes each frame'' earns half; the mark is for naming the
+stop bit as the condition.
+
+\answerpart{c}{3}
+\textbf{When \code{tx} goes low.} \code{start} is looked at only in \code{STATE_IDLE}, and
+\code{tx <= '0'} is scheduled in the same clocked process at the same rising edge, so \code{tx} is
+low from just after \textbf{the very edge on which \code{start} was seen}. Nothing waits for a
+\code{baud_tick}. The start bit therefore begins on a \emph{clock} edge, at whatever phase
+\code{baud_gen}'s internal counter happens to be sitting. \worth{1}
+
+\textbf{How long the start bit lasts.} The bit ends on the sixteenth \code{baud_tick} after entry to
+\code{STATE_SEND}: tick~1 finds \code{ticks = 0} and increments, \dots, tick~15 finds
+\code{ticks = 14} and increments to 15, and tick~16 finds \code{ticks = 15}, satisfies
+\code{ticks >= MAX_TICKS - 1}, and advances \code{bit_idx}.
+
+The \textbf{first} of those sixteen ticks arrives between 1 and \code{div} clocks after entry,
+because the divider's counter was already partway through a window. Every tick after it is exactly
+\code{div} clocks apart. One clock more follows: \code{tx <= frame(bit_idx)} reads \code{bit_idx}
+before the edge that advances it, so the line changes to data bit~0 one clock after the sixteenth
+tick. So, for $k$ in $1 \ldots \mathtt{div}$:
+
+\begin{console}
+start bit length = k + 15 x div + 1  clocks
+                 = 15 x div + 2       at shortest
+                 = 16 x div + 1       at longest
+\end{console}
+\worth{1}
+
+A nominal bit is \code{16 x div} clocks, so the start bit is at worst \code{div - 2} clocks short,
+or one clock long: under one tick period either way, that is under \textbf{one sixteenth of a bit}.
+The spread of \code{div - 1} clocks is the phase of \code{baud_gen}'s counter when \code{start}
+arrives. Simulated at \code{div = 4}, the start bit measures 62 to 65 clocks and every data bit
+exactly 64. Accept \code{15 x div + 1} to \code{16 x div} from a candidate who misses the one-clock
+lag but explains the tick phase; the variation is the point.
+
+\textbf{Why nothing else inherits it.} \code{ticks} is cleared \emph{on} the tick that ends the bit,
+and that tick is itself a tick boundary. So every bit after the first begins on a tick (one clock
+after it, the same lag every time) and lasts exactly sixteen tick periods. The error is confined to
+the start bit and does not accumulate down the frame.
+
+And the receiver does not care: it triggers on the falling edge that opens the start bit and samples
+the start bit half a bit later. A start bit up to one sixteenth short is still comfortably low at its
+own midpoint, and every bit the receiver actually reads a value out of is full length. \worth{1}
+
+\answerpart{d}{3}
+\textbf{The two orderings.} \code{0xA5 = 1010 0101}, so $d_7 = 1$, $d_6 = 0$, $d_5 = 1$, $d_4 = 0$,
+$d_3 = 0$, $d_2 = 1$, $d_1 = 0$, $d_0 = 1$.
+
+\begin{booktable}{@{}Lcccccccc@{}}
+  \thead{Order} & 1st & 2nd & 3rd & 4th & 5th & 6th & 7th & 8th \\
+  \midrule
+  least significant first ($d_0 \ldots d_7$) & 1 & 0 & 1 & 0 & 0 & 1 & 0 & 1 \\
+  most significant first ($d_7 \ldots d_0$) & 1 & 0 & 1 & 0 & 0 & 1 & 0 & 1 \\
+\end{booktable}
+
+\textbf{They are identical.} A transmitter that packed its frame most significant first would put
+exactly the same eight levels on the line, in exactly the same order, and \code{uart_tx_tb} would
+have passed. \worth{1}
+
+\textbf{The property.} \code{0xA5} is a \textbf{bit-reversal palindrome}: reverse its eight bits and
+you get \code{0xA5} again. The constant chosen was one of the few bytes that cannot possibly
+distinguish the two orderings.
+
+\textbf{How many bytes share it.} A palindrome is determined entirely by its top four bits ---
+$b_7$ fixes $b_0$, $b_6$ fixes $b_1$, $b_5$ fixes $b_2$, $b_4$ fixes $b_3$ --- so there are
+$2^4 = $ \textbf{16} of them out of 256. Pick a byte at random and you have a 15-in-16 chance of
+catching the bug; the earlier testbench had picked one of the 16. \worth{1}
+
+\textbf{The constant the testbench uses today.} \code{0x53 = 0101 0011}, and its reverse is
+\code{0xCA}:
+
+\begin{booktable}{@{}Lcccccccc@{}}
+  \thead{Order} & 1st & 2nd & 3rd & 4th & 5th & 6th & 7th & 8th \\
+  \midrule
+  least significant first ($d_0 \ldots d_7$) & 1 & 1 & 0 & 0 & 1 & 0 & 1 & 0 \\
+  most significant first ($d_7 \ldots d_0$) & 0 & 1 & 0 & 1 & 0 & 0 & 1 & 1 \\
+\end{booktable}
+
+They differ at the \textbf{first} data bit, so the testbench fails immediately and reports
+\textbf{data bit~0} mismatched. Any non-palindromic byte would do --- \code{0x01}, \code{0x0F},
+\code{0x48}, \code{0xB2} --- and the mark is for seeing that asymmetry is the property required, not
+for naming this particular byte.
+
+\textbf{The lesson.} A green testbench proves the cases it contains, not the property you believed
+you were checking. The check itself was always real --- the levels must match \code{TXBYTE} bit for
+bit in the order expected --- but with a symmetric constant it had no power to distinguish an
+ordering at all, so a genuine check had been quietly turned into a decoration by its own test data.
+\worth{1}
+
+Worth saying out loud, because the same reasoning applies to the other testbenches:
+\code{uart_rx_tb} used \code{0xA5} and \code{0x3C}, and \code{uart_top_tb} used \code{0x5A}. All
+three were palindromes, so at that revision \textbf{no testbench in \file{hw/} pinned down bit order
+at all}. All four constants are non-palindromic today. One case survives even so:
+\code{uart_top_tb} loops \code{tx} back to \code{rx}, so a transmitter and a receiver that are
+reversed \textbf{together} cancel exactly and pass whatever constant it sends. Only the two unit
+testbenches can catch that pair, which is exactly why a system-level loopback is not a substitute for
+them.
+
+Full marks for reaching that conclusion by any route. A candidate who writes out the two orderings,
+sees that they match and says so has done the hard part.
+
+% ==========================================================================================
+\answersection{3}{The asynchronous line}{14}
+
+\answerpart{a}{3}
+\textbf{What can happen.} \code{rx} is governed by another chip, so it can change at any instant
+relative to \code{clock}, including inside a flip-flop's \textbf{setup-and-hold window}. A flop
+clocked in that window can go \textbf{metastable}: its output sits between the two logic levels for
+an unbounded time before resolving, and resolves either way.
+
+\textbf{What the failure actually is.} Sampling a signal mid-transition and getting either level
+back is \textbf{not} the failure. Either answer is legitimate for a signal that genuinely was
+changing, and one clock later you would have got the other one anyway. The failure is that for a
+while the output is \textbf{not a level at all}. Two gates reading the same flop can resolve it
+differently in the same cycle, so a state machine can take two branches at once and land in an
+encoding that does not exist, and a counter can advance by something other than one. It is a
+\emph{late} answer, not a wrong one, and lateness is what breaks a synchronous design. \worth{1}
+
+\textbf{Why two flops.} The first flop is the one exposed to the asynchronous edge and may go
+metastable. The second gives it a \textbf{full clock period} to settle before anything downstream
+sees it, and the probability of a metastable state surviving that long falls exponentially with the
+time allowed --- which is what the mean-time-between-failures expression describes. One flop gives it
+no settling time whatever: whatever it is doing at the next edge is what the design consumes, so a
+single register is not a synchronizer at all, however much it looks like one in simulation. Nothing
+in a simulator is ever metastable, which is why \code{sync_tb}'s ``exactly two edges'' check exists.
+\worth{1}
+
+\textbf{Where it lives.} \code{uart_top} instantiates \code{sync} on the \code{rx} pin.
+\code{uart_rx} deliberately does \textbf{not} contain one: its input port is named
+\textbf{\code{rx_s2}}, and the \code{_s2} suffix is the announcement --- this signal has already
+been through a two-flop synchronizer, so treat it as an ordinary synchronous input and sample it
+directly.
+
+The principle is that the module which owns the pins owns the crossing. \code{uart_top} owns the
+pins, so it owns the crossing; \code{uart_rx} is then a purely synchronous design, which is easier to
+reason about and easier to test. \worth{1}
+
+\answerpart{b}{3}
+\code{0x53 = 0101 0011}, so $d_0 = 1$, $d_1 = 1$, $d_2 = 0$, $d_3 = 0$, $d_4 = 1$, $d_5 = 0$,
+$d_6 = 1$, $d_7 = 0$. Sent least significant first, that is the arrival order, and
+\code{frame(bit_idx) <= rx_s2} with \code{bit_idx} counting up stores each where it belongs:
+
+\begin{booktable}{@{}Lcccccccc@{}}
+  \thead{Arrival} & 1st & 2nd & 3rd & 4th & 5th & 6th & 7th & 8th \\
+  \midrule
+  level & 1 & 1 & 0 & 0 & 1 & 0 & 1 & 0 \\
+  \code{bit_idx} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\end{booktable}
+\worth{1}
+
+After the eighth, \code{frame(7 downto 0) = "01010011"}, and on a good stop bit that is what
+\code{data_out} carries: \textbf{\code{0x53}}, the byte that was sent. \worth{1}
+
+\textbf{Counting down.} With \code{bit_idx} walking 7 down to 0, the first-arriving bit lands in
+index 7 and the last in index 0:
+
+\begin{console}
+frame = d0 d1 d2 d3 d4 d5 d6 d7 = 1 1 0 0 1 0 1 0 = "11001010" = 0xCA
+\end{console}
+
+\noindent The delivered byte is the \textbf{bit reversal} of the byte sent. Note that it is not
+garbage and not noise: it is a well-formed byte, every frame arrives cleanly, \code{valid} pulses,
+no \code{frame_err} is raised, and everything downstream works perfectly on data that is silently
+wrong. \worth{1}
+
+\answerpart{c}{5}
+\noindent\textbf{(i)}\enspace The centre of bit~$n$ is $8 + 16n$ ticks after the true falling
+edge. Against that:
+
+\begin{booktable}{@{}Lp{9em}cc@{}}
+  \thead{Sample} & \thead{Ticks after the true edge} & \thead{Ideal} & \thead{Past centre} \\
+  \midrule
+  start-bit re-check & 1 (notice) + 9 = 10 & 8 & \textbf{2 ticks} \\
+  first data bit & 10 + 17 = 27 & 24 & \textbf{3 ticks} \\
+  every later data bit & previous + 16 & +16 & \textbf{3 ticks} \\
+  stop bit & last data + 17 = 156 & 152 & \textbf{4 ticks} \\
+\end{booktable}
+
+The offset is \textbf{fixed rather than accumulating} because data bit to data bit is exactly
+sixteen ticks. The extra ticks are spent once at each \emph{state change} --- idle to start, start
+to data, data to stop --- not once per bit. So the phase error is paid twice in the whole frame and
+then held constant. \worth{1}
+
+\medskip\noindent\textbf{(ii)}\enspace The stop bit is the tenth bit of an 8N1 frame, so $n = 9$.
+
+\begin{console}
+ideal sample tick   = 8 + 16 x 9 = 152
+stop bit begins at  = 16 x 9     = 144
+stop bit ends at    = 16 x 10    = 160
+\end{console}
+\worth{1}
+
+Write $T_r$ for the receiver's tick period and $T_t$ for the transmitter's. The receiver samples 152
+of \emph{its own} ticks after the edge; the transmitter's bit boundaries are 144 and 160 of \emph{its
+own}. The sample stays inside the stop bit when
+\[
+  144\,T_t < 152\,T_r < 160\,T_t
+  \quad\Longleftrightarrow\quad
+  \frac{144}{152} < \frac{T_r}{T_t} < \frac{160}{152}
+  \quad\Longleftrightarrow\quad
+  0.9474 < \frac{T_r}{T_t} < 1.0526,
+\]
+so the combined mismatch budget is \textbf{plus or minus 5.26\,\%}, symmetric, about five percent
+either way. \worth{1}
+
+\medskip\noindent\textbf{(iii)}\enspace As built, the stop bit is sampled four ticks late, at
+\textbf{156}:
+\[
+  144\,T_t < 156\,T_r < 160\,T_t
+  \quad\Longleftrightarrow\quad
+  \frac{144}{156} < \frac{T_r}{T_t} < \frac{160}{156}
+  \quad\Longleftrightarrow\quad
+  0.9231 < \frac{T_r}{T_t} < 1.0256,
+\]
+so \textbf{$-$7.69\,\% / +2.56\,\%}. \worth{1}
+
+\textbf{Which side was eaten into.} $T_r / T_t > 1$ means the receiver's ticks are \emph{longer}
+than the transmitter's --- the receiver is slow, or equivalently \textbf{the transmitter is fast}.
+That limit falls from 5.26\,\% to 2.56\,\%, a little under half. The other side gains: a transmitter
+running slow now has 7.69\,\% instead of 5.26\,\%, which is no use to anybody, because a real link is
+limited by its worst direction.
+
+\textbf{When it bites.} A peer transmitter that runs fast relative to this receiver. This is not
+hypothetical: each end rounds its own integer divider and runs from its own clock, so each is off by
+its own amount, and what the receiver sees is the difference. At 115200 this peripheral, with
+\code{BAUD_DIV = 27}, is itself \textbf{+0.47\,\% fast}, which happens to push that difference
+towards the roomy side; a divider that rounds up instead, making this end slow (9600, at
+$-0.15$\,\%, is one), or a peer whose own rate errs upward, spends the small one. The margin is
+still ample for a well-configured link --- the point is that the design started with half the
+trailing margin the ideal tick-8 sample would have had, for three tick-sized implementation details
+nobody chose deliberately. \worth{1}
+
+Accept a candidate who works in ``percent baud error'' rather than tick-period ratios, provided the
+asymmetry and the roughly halved fast-side figure come out.
+
+\answerpart{d}{3}
+\textbf{The FIFO.}
+
+\begin{vhdlcode}
+    rdata <= entries(tail);
+    empty <= empty_s;
+    full  <= full_s;
+
+    full_s  <= '1' when count = DEPTH else '0';
+    empty_s <= '1' when count = 0 else '0';
+
+    process(clock, reset_s2_n) is
+    variable push, pop: std_logic;
+    begin
+        if (reset_s2_n = '0') then
+            head  <= 0;
+            tail  <= 0;
+            count <= 0;
+        elsif (rising_edge(clock)) then
+            push := wr and (not full_s);
+            pop  := rd and (not empty_s);
+            if (push = '1') then
+                entries(head) <= wdata;
+                advance_ptr(head);
+            end if;
+            if (pop = '1') then
+                advance_ptr(tail);
+            end if;
+            if ((push = '1') and (pop = '0')) then
+                count <= count + 1;
+            elsif ((push = '0') and (pop = '1')) then
+                count <= count - 1;
+            end if;
+        end if;
+    end process;
+\end{vhdlcode}
+\credit{2 marks}
+
+Four things carry the marks, and each is a place a plausible answer goes wrong:
+\begin{itemize}
+  \item \textbf{The guards are folded into \code{push} and \code{pop} once}, as variables, rather
+    than repeated at each use. Everything downstream then tests the \emph{guarded} event, so a write
+    to a full FIFO cannot move \code{head} and a read from an empty one cannot move \code{tail}.
+  \item \textbf{\code{count} is adjusted only when the two disagree.} A simultaneous push and pop
+    leaves it exactly where it was; incrementing in one branch and decrementing in another,
+    unconditionally, is the classic bug here, and it desynchronizes the flags from the contents
+    within one cycle.
+  \item \textbf{\code{rdata} is a concurrent assignment from \code{tail}, not something the process
+    writes.} That is the look-then-advance contract \chapref{5} depends on: the front byte is visible
+    with no \code{rd} at all, and \code{rd} only advances.
+  \item \textbf{Both flags come from \code{count}}, not from comparing \code{head} with \code{tail}
+    --- which cannot tell full from empty in a ring buffer without a spare slot or an extra bit.
+\end{itemize}
+Accept a registered \code{rdata}, or \code{full} and \code{empty} derived from pointers plus a wrap
+bit, only if the candidate says what they have paid for it. Accept \code{advance_ptr} written out
+inline.
+
+\textbf{How many frames.} \code{DEPTH = 8}, so the RX path absorbs \textbf{eight} whole frames. The
+ninth \code{valid} pulse arrives with \code{full_s} set, so \code{push} is \code{'0'} and the byte
+is \textbf{simply dropped} --- silently: no flag, no pulse, nothing on the wire. The line that
+decides it is \code{push := wr and (not full_s)}. The FIFO's contract is to preserve order and keep
+its flags honest, not to tell anybody it threw something away, which is why the caller must watch
+the flags.
+
+\textbf{The reserved bit.} \code{ER_OVERRUN}, \textbf{\code{ERROR_FLAGS} bit~2}. In this book's
+build nothing in the hardware ever sets it, because only \code{frame_err} has a producer, so it reads
+\code{0} unless software writes a \code{1} there; \code{ER_PARITY} (bit~1) is in the same situation.
+
+That is a \textbf{reservation, not an omission}: the positions are fixed in the protocol, in
+\file{uart_def.vhd} and in \file{register_map.hpp} (\code{error::OVERRUN = 2} on both sides), so an
+implementation that adds overrun detection later drops straight in without renumbering anything or
+breaking a driver that was already written against the map. A map that defined only the bits it
+currently implements would force exactly that renumbering, and every existing driver with it.
+\worth{1}
+
+% ==========================================================================================
+\answersection{4}{Ports become registers}{13}
+
+\answerpart{a}{3}
+\textbf{The assignments.}
+
+\begin{vhdlcode}
+    status_reg(31 downto 4) <= (others => '0');
+    status_reg(ST_TX_READY) <= not tx_full_s;
+    status_reg(ST_RX_VALID) <= not rx_empty_s;
+    status_reg(ST_ERROR)    <= err_flags(0) or err_flags(1) or err_flags(2);
+    status_reg(ST_TX_IDLE)  <= tx_empty_s and (not tx_busy);
+\end{vhdlcode}
+\worth{1}
+
+Five concurrent assignments, not a process: there is no state here to clock. Accept a comparison
+with \code{"000"}, or a helper function, in place of the OR for \code{ST_ERROR}, and accept any
+spelling of the FIFO flag signals, but \textbf{the bits must be indexed by their \code{uart_def}
+names}, not by literals --- that is the whole point of the package, and a candidate who writes
+\code{status_reg(1)} has thrown away the protection the shared map exists to give. The reserved line
+is worth having: without it bits 31--4 are undriven, and a read returns \code{'U'} in simulation
+rather than the zeros Part~2 of the protocol (\secref{proto:part2}) promises.
+
+\begin{booktable}{@{}lp{6.4em}p{8.6em}L@{}}
+  \thead{Bit} & \thead{Constant} & \thead{Expression} & \thead{Why it cannot be stored} \\
+  \midrule
+  0 & \code{ST_TX_READY} & \code{not tx_full} & It is a property of the FIFO's own count, changing
+    on every push \emph{and} every pop; a stored copy is wrong the moment one update is missed. \\
+  1 & \code{ST_RX_VALID} & \code{not rx_empty} & The same --- and note it cannot be the receiver's
+    \code{valid}, which is one clock wide and long gone before software polls. \\
+  2 & \code{ST_ERROR} & the OR of the \code{ERROR_FLAGS} latches & It is a \emph{view} of other
+    state, not a fact of its own; storing it means two places to keep in step. \\
+  3 & \code{ST_TX_IDLE} & \code{tx_empty and (not tx_busy)} & It combines a FIFO flag with a
+    datapath level, and no single writer knows both. \\
+\end{booktable}
+\credit{1 mark for reasoning that generalizes}
+
+The general statement is worth the second mark on its own: each bit reports a \textbf{state}, while
+the things that change that state are \textbf{pulses and edges}. A register written by events is a
+register that is wrong whenever an event is missed, whenever two arrive together, and immediately
+after reset unless its reset value is hand-maintained. Deriving the bit from the state it reports
+removes all three failure modes by construction.
+
+\textbf{The value.} The TX FIFO holds 2 of 8, so \code{tx_full = '0'} and bit~0 is \textbf{1}. The
+RX FIFO is empty, so bit~1 is \textbf{0}. No error is latched, so bit~2 is \textbf{0}.
+\code{tx_empty} is false (two bytes waiting) \emph{and} \code{tx_busy} is true, so bit~3 is
+\textbf{0}. Everything above bit~3 reads zero.
+
+\begin{console}
+STATUS = 0x00000001
+\end{console}
+\worth{1}
+
+\answerpart{b}{4}
+\textbf{The failing check.} A read has no strobe, so a popping read can only be built from the
+address: \code{rx_pop} also asserted whenever \code{reg_idx = REG_RX_DATA}. That pops on the edge
+after which \code{uart_regs_tb} samples, so the first check to fire is \textbf{Case~5's
+\code{RX_DATA} read-back}, which asserts that \code{RX_DATA} returns the byte just pushed and
+reports \code{uart_regs_tb: RX_DATA mismatch, got 0x00!} --- the byte is gone before the testbench
+looks. A variant that pops as the address \emph{leaves} \code{RX_DATA} survives Case~5 and trips
+Case~6 instead, ``\code{RX_DATA read must not pop!}'', which reads \code{STATUS} after a bare
+\code{RX_DATA} read and asserts that RX-valid is still set. Either is the split being pinned down;
+award the mark for either, with what it asserts. \worth{1}
+
+\textbf{Why a read with a side effect is harder.} The transport's abort rule says that if \code{SS}
+rises before the fifth byte the transaction is abandoned with \textbf{no side effects}. Writes get
+that for free: \code{spi_reg_bridge} asserts \code{reg_write} only when a write transaction
+completes, so a \code{reg_write} the bank sees is always a real commit --- which is precisely what
+lets \code{TX_DATA} and \code{RX_POP} be one-cycle actions with no state machine of their own.
+
+A read has no such strobe. \code{reg_rdata} is \textbf{combinational}: the bank presents a value for
+whatever \code{reg_addr} currently carries, and the bridge latches it once at the end of the command
+byte and then shifts it out. The bank therefore cannot distinguish a read that completed from one
+abandoned after the address byte --- and it cannot even tell how many times the same address was
+presented.
+
+So the thing the bridge would have to tell the bank, and currently has no way to say, is
+\textbf{``this read transaction completed''} --- a read-side commit strobe, the mirror of
+\code{reg_write}. The bank would then have to hold the pop pending until that strobe arrived and
+drop it on an abort. That is the entire write-side machinery, duplicated, to make a read do
+something a separate write already does for free. Splitting \code{RX_DATA} from \code{RX_POP}
+sidesteps the question rather than solving it, which is why \secref{c5:app:a} calls it the single
+most important idea in the module. \credit{2 marks}
+
+\textbf{The driver trace.} The RX FIFO holds \code{0x41} then \code{0x42}.
+
+\begin{booktable}{@{}cp{5.6em}Lp{7.2em}p{5em}l@{}}
+  \thead{Call} & \thead{\code{STATUS} poll} & \thead{\code{RX_DATA} read} &
+    \thead{\code{RX_POP} write} & \thead{Returns} & \thead{FIFO after} \\
+  \midrule
+  1 & RX-valid set & returns \code{0x41}, \textbf{and advances to \code{0x42}} & advances again,
+    discarding \code{0x42} & \code{0x41}, \code{true} & empty \\
+  2 & RX-valid clear & not issued & not issued & \code{false} & empty \\
+\end{booktable}
+
+\code{0x42} was \textbf{popped without ever being read}. The FIFO advanced twice for one delivered
+byte, so every second byte is lost --- and lost invisibly, since nothing anywhere reports a discarded
+entry. A testbench that sends one byte at a time never sees it. \worth{1}
+
+\answerpart{c}{3}
+\textbf{\code{uart_regs_tb}.} It does not write \code{CTRL} until its eighth case, so during the
+transmit case the enable bit holds the bank's reset value, \code{0}. The \code{TX_DATA} write is
+therefore swallowed, the TX FIFO stays empty, and the case that checks the FIFO front reports
+\code{uart_regs_tb: TX FIFO front should be 0x5A, got 0x00!}. The message names the right register,
+so the cause is findable. \worth{1}
+
+\textbf{\code{uart_top_tb}.} It never writes \code{CTRL} at all. The byte never enters the TX FIFO,
+so nothing is transmitted, nothing loops back, nothing arrives in the RX FIFO, and the testbench
+polls \code{STATUS} for RX-valid up to its poll limit and gives up.
+
+That message is the \textbf{less useful} of the two because it is a timeout: it says the byte never
+came back and nothing about why. It is equally consistent with a broken transmitter, a broken
+receiver, a broken FIFO, a wrong \code{BAUD_DIV}, a missing feeder, or a bank waiting to be enabled
+--- exactly the failure \secref{c5:app:a} warns about, ``a timeout that says nothing about the
+cause''. \worth{1}
+
+\textbf{The fact that settles it.} \code{uart_regs} has \textbf{no \code{ctrl} output}. Read the port
+list: there is no port by which \code{CT_ENABLE}, the parity select, the stop-bit select or either IRQ
+mask could reach \code{uart_tx}, \code{uart_rx} or \code{baud_gen}. If no wire leaves the module
+carrying \code{CTRL}, then nothing in this build may be gated on it, and the question is closed by
+the interface rather than by taste. \worth{1}
+
+\textbf{Why the bits exist anyway.} The register map is the \textbf{shared contract} with
+\file{register_map.hpp} and with the protocol, and its positions are fixed so that an implementation
+which wires them later stays compatible with both halves as already written. The driver's
+\code{configure()} writes the enable bit for the same reason: the two sides agree on the wire, and
+the write simply has no effect on the hardware yet.
+
+\answerpart{d}{3}
+\textbf{Why exactly one byte.} \code{busy} is a concurrent decode of the state:
+
+\begin{vhdlcode}
+busy <= '1' when state = STATE_SEND else '0';
+\end{vhdlcode}
+
+\noindent so it is high in the same simulation cycle as the state change the load caused. The
+moment the transmitter accepts the byte it is in \code{STATE_SEND}, \code{tx_busy} is high, and
+\code{tx_load} has already gone low --- one clock of \code{tx_load}, one \code{start} pulse, one
+\code{tx_pop}.
+
+It stays low for the rest of the frame because \code{tx_busy} stays high for the rest of the frame;
+that is what holds it. And it cannot be \textbf{zero} loads, because the instant the transmitter
+returns to \code{STATE_IDLE} with a non-empty FIFO both terms are true again and the next byte goes.
+\worth{1}
+
+\textbf{The simplification.} They are right that \code{uart_tx} ignores \code{start} outside
+\code{STATE_IDLE}, so the transmitter is safe. The bug is in the \emph{other} line: \code{tx_pop} is
+the same signal.
+
+With \code{tx_load <= not tx_empty}, \code{tx_load} is high \textbf{continuously} for as long as
+the FIFO has anything in it. So the FIFO is popped \textbf{once per 50\,MHz clock cycle}. A FIFO
+holding four bytes empties in four consecutive clocks, about 80\,ns, while the first byte's start bit
+is still on the wire and has roughly 8.6\,µs left to run.
+
+\textbf{One} of the four bytes reaches the wire. The other three survive about 60\,ns at most and are
+discarded unsent, with no flag and nothing to see. \worth{1}
+
+\textbf{Does \code{uart_top_tb} catch it?} \textbf{No.} The testbench writes exactly one byte to
+\code{TX_DATA}, so the FIFO empties after a single pop either way and the two designs behave
+identically. It would take a testbench that queues two bytes to see the difference --- which is the
+same lesson as Question~2(d) in different clothes: a passing testbench proves the cases it contains.
+\worth{1}
+
+Worth noting for a candidate who spots it: this is also why the feeder could not be written before
+\chapref{5}. \code{tx_empty} comes from the register bank and \code{tx_busy} from the transmitter,
+so it needs a block from \chapref{2} and a block from \chapref{5} to exist at the same time.
+
+% ==========================================================================================
+\answersection{5}{The driver's contracts}{12}
+
+\answerpart{a}{4}
+\begin{cppcode}
+if (status & (1U << status::RX_VALID)) { /* a byte is waiting */ }
+\end{cppcode}
+
+\begin{vhdlcode}
+if (status(ST_RX_VALID) = '1') then -- the same bit, indexed by position
+\end{vhdlcode}
+\credit{1 mark for both}
+
+\textbf{\code{if (status & status::RX_VALID)}.} \code{status::RX_VALID} is \code{1}, so the mask is
+\code{0x1} --- which is \textbf{\code{TX_READY}'s} bit. The position has been used where a mask was
+meant, and it happens to be a legal mask for the wrong bit.
+
+Consequence: \code{read()} returns \code{true} whenever the transmitter has room, which after reset
+it always does. It reads \code{RX_DATA} from an empty FIFO, so the bank hands back whatever the ring
+buffer holds at \code{tail} --- reset data or a stale entry --- and the driver returns that byte to
+the caller as if it had arrived on the wire. It then issues an \code{RX_POP} that the FIFO's
+\code{not empty} guard silently drops. \code{app::EchoNode} over this driver emits a stream of
+garbage bytes at the speed of its poll loop, having received nothing at all. \worth{1}
+
+\textbf{\code{writeReg(reg::CTRL, ctrl::ENABLE);}.} \code{ctrl::ENABLE} is \code{0}, so this writes
+\code{0x00000000} to \code{CTRL} --- clearing the register rather than setting bit~0. The correct
+form is \code{writeReg(reg::CTRL, 1U << ctrl::ENABLE)}.
+
+Consequence, and this is the interesting part: \textbf{in this book's build, nothing happens.}
+\code{CTRL} gates nothing, so the peripheral transmits and receives exactly as before, and every
+testbench and every rung of the bench passes. Only the host suite notices ---
+\code{Uart.ConfigureWritesBaudThenEnable} expects the \code{CTRL} write to end in \code{0x01} and
+gets \code{0x00} --- and without that one assertion the bug is a time bomb: it becomes a peripheral
+that never enables on the first day somebody wires \code{CT_ENABLE} to something real, in a driver
+that has looked correct for months. \worth{1}
+
+\textbf{A mask stored where the map stores a position.} \code{RX_VALID} is now \code{2}, so
+\code{1U << status::RX_VALID} shifts by two and tests \textbf{bit~2}, the \code{ERROR} bit.
+\code{read()} returns \code{true} when an error is latched and \code{false} otherwise, so it never
+delivers a byte and does deliver on a framing error.
+
+Worse than the behaviour is where the bug lives: the two sides of the wire now \textbf{disagree
+about the map}, since \file{uart_def.vhd} still has \code{ST_RX_VALID = 1}. Nothing on the host can
+find it, because the host tests script the stub with values produced from this same header --- the
+driver and its tests are wrong together and agree perfectly. It is a bench-only bug, and ``both
+sides store positions, transcribed from the protocol rather than from each other'' is the rule that
+exists to prevent exactly it. \worth{1}
+
+\answerpart{b}{3}
+\textbf{The three methods.} \code{begin()}, \code{transfer(uint8_t)} returning \code{uint8_t}, and
+\code{end()}. Select, exchange one byte in full duplex, deselect --- the framing of Part~3 of the
+protocol and nothing more. \worth{1}
+
+\textbf{What it does not know.} It knows nothing about \textbf{registers} --- no indices, no command
+byte, no five-byte shape, no byte order --- and nothing about the \textbf{UART} --- no baud, no FIFOs,
+no status bits. It is a dumb byte pipe.
+
+\textbf{What the byte level buys.} All the protocol knowledge stays in one place, the driver, so
+there is exactly one implementation of the transaction shape to get right and exactly one to test.
+And the layer below becomes something a stub can imitate \textbf{perfectly}, because ``return a byte
+for a byte'' has no behaviour to model --- there is nothing for a fake to get subtly wrong.
+
+A seam at \code{readReg} and \code{writeReg} would push the command byte and the byte order
+\emph{below} the line. The stub would then have to reimplement them, and a test asserting that the
+driver produced the right transaction would really be asserting that the stub and the driver made
+the same mistake. The byte-level seam is what makes the test meaningful, not merely possible.
+\worth{1}
+
+\textbf{The two implementations, and what changes.} \code{driver::transport::Stub} (\chapref{8},
+host, scripted) and \code{driver::transport::AvrSpi} (\chapref{9}, target, real). What changes above
+the seam when they swap: \textbf{nothing at all.} The register map, \code{Uart}, the blocking helpers
+and \code{EchoNode} are recompiled, not rewritten --- which is the entire return on the design work
+done in \chapref{6}. \worth{1}
+
+\answerpart{c}{3}
+\begin{enumerate}
+  \item \textbf{\code{#include <cstdint>} and \code{std::uint8_t}, \code{std::uint32_t}.} The AVR
+    target is \emph{freestanding} and avr-libc ships \textbf{no C++ standard library at all}, so
+    there is no \code{<cstdint>} and no \code{std} namespace to qualify anything with. Replace them
+    with \code{<stdint.h>} and the bare \code{uint8_t} and \code{uint32_t}.
+  \item \textbf{\code{namespace driver::uart \{ ... \}}.} The compact nested-namespace definition is
+    C++17, and the reference toolchain does not accept \code{-std=c++17} as an option at all.
+    Replace it with nested blocks: \code{namespace driver \{ namespace uart \{ ... \} \}}.
+  \item \textbf{\code{inline constexpr} at namespace scope.} \code{inline} \emph{variables} are also
+    C++17. Plain \code{constexpr} is the replacement and costs nothing: at namespace scope it already
+    has internal linkage, so each translation unit gets its own compile-time copy of a constant that
+    never occupies storage.
+  \item \textbf{\code{[[nodiscard]]}.} Rejected by that toolchain, so it is omitted from everything
+    that has to cross-compile. The host-only test suites keep it, because they never build for the
+    target.
+\end{enumerate}
+
+The point in each case is that the toolchain is missing a \textbf{language level and a library}, not
+merely being conservative. The reference is the AVR/GNU C++ compiler bundled with Microchip Studio,
+several GCC releases behind a desktop g++, so ``it compiled on my Linux avr-g++'' is not evidence
+that it will build for the target the book names.
+\credit{2 marks: 1 for the four rejections, 1 for reasons that name the missing language level or
+library rather than ``it is old''}
+
+\textbf{The corrected header.}
+
+\begin{cppcode}
+#pragma once
+
+#include <stdint.h>
+
+namespace driver
+{
+namespace uart
+{
+constexpr uint8_t TxReady{0U};
+
+class Interface
+{
+public:
+    virtual ~Interface() noexcept = default;
+
+    virtual uint32_t status() const noexcept = 0;
+};
+} // namespace uart
+} // namespace driver
+\end{cppcode}
+\worth{1}
+
+\code{#pragma once} is not in the original listing and is not one of the four defects, but a header
+without an include guard is a defect of its own and the book's headers all carry one; award the mark
+without it, and note it. \code{virtual} and \code{= 0} survive untouched, as do \code{noexcept},
+\code{override}, \code{final} and \code{= default} --- the subset is narrower than modern C++, not a
+different language.
+
+\answerpart{d}{2}
+\textbf{What each \code{bool} means.} \code{write(byte)} returns \code{true} if the byte was accepted
+into the TX FIFO and \code{false} if the FIFO was full, in which case \textbf{nothing was written}
+--- the driver does not queue, retry or buffer. \code{read(byte&)} returns \code{true} if a byte was
+placed in the out-parameter, and \code{false} if none was waiting, in which case no \code{RX_DATA}
+read and no \code{RX_POP} were issued. \worth{1}
+
+\textbf{The bits behind them.} \code{STATUS} bit~0, \code{TX_READY} (\code{not tx_full}), makes the
+write answer possible; bit~1, \code{RX_VALID} (\code{not rx_empty}), makes the read answer
+possible. The \chapref{5} mechanism behind both is that \code{STATUS} is \textbf{computed from the
+FIFO flags}, so each is a level that stays true until the condition changes --- a pollable fact
+rather than an event that has to be caught.
+
+\textbf{The blocking versions.} The free functions \code{writeBlocking} and \code{readBlocking} in
+\file{driver/uart/blocking.hpp}, taking \code{Interface&} so that they work over any implementation
+and dispatch to the concrete driver at run time. They are free functions rather than methods because
+they add no state and no new contract --- putting them in the interface would oblige every
+implementation, including every stub, to reimplement a one-line spin loop.
+
+If the interface itself blocked, two things would be lost. Every operation would become
+non-deterministic to test: a test would have to arrange for the stub to \emph{eventually} succeed,
+and a mistake would hang rather than fail. And an application could no longer poll ---
+\code{EchoNode} could not re-check its \code{stop} flag between reads, which is the exact property
+its test depends on. \worth{1}
+
+% ==========================================================================================
+\answersection{6}{The five-byte transaction}{13}
+
+\answerpart{a}{4}
+\textbf{The command bytes.}
+
+\begin{booktable}{@{}p{7.6em}ccp{6.4em}L@{}}
+  \thead{Bytes} & \thead{Bit 7} & \thead{Index} & \thead{Register} & \thead{Direction} \\
+  \midrule
+  \code{82 00 00 00 1B} & 1 & 2 & \code{BAUD_DIV} & write \code{0x0000001B} = 27 \\
+  \code{81 00 00 00 01} & 1 & 1 & \code{CTRL} & write \code{0x00000001} = \code{1U << ctrl::ENABLE} \\
+  \code{00 00 00 00 00} & 0 & 0 & \code{STATUS} & read, four dummy bytes \\
+  \code{04 00 00 00 00} & 0 & 4 & \code{RX_DATA} & read, four dummy bytes \\
+  \code{85 00 00 00 01} & 1 & 5 & \code{RX_POP} & write \code{1} \\
+\end{booktable}
+\worth{1}
+
+\textbf{Which belong together.}
+\begin{itemize}
+  \item Transactions 1 and 2 are one \textbf{\code{configure(27)}}: the baud divider first, the
+    enable afterwards, in that order, because the peripheral should know its rate before it is
+    switched on.
+  \item Transactions 3, 4 and 5 are one successful \textbf{\code{read(byte)}}: poll \code{STATUS},
+    pure read of \code{RX_DATA}, separate \code{RX_POP} write. Three register accesses, in that
+    order, which is the \chapref{5} contract showing up on the other side of the wire.
+\end{itemize}
+\worth{1}
+
+\textbf{What the driver did with the returned bytes.} In both reads, the reply that came back during
+the \emph{command} byte is discarded --- it is meaningless, since the slave does not yet know which
+register is being asked for. The four bytes returned during the four dummy exchanges are assembled
+\textbf{most significant byte first}: the first into bits 31--24, then 23--16, then 15--8, and the
+last into bits 7--0. In transaction 3 the driver then tested bit~1 (\code{RX_VALID}) of the
+assembled word; in transaction 4 it kept the low byte and copied it into the caller's out-parameter.
+\worth{1}
+
+\textbf{What the call counts prove.} They prove each transaction was \textbf{framed exactly once},
+and the two counts being equal means every \code{SS} that fell also rose --- five complete, balanced
+transactions rather than one long one.
+
+The byte log alone cannot distinguish this from a driver that called \code{begin()} once, pushed
+all twenty-five bytes, and called \code{end()} at the very end. On a stub that is invisible: the
+same bytes in the same order. On real hardware it is fatal --- \code{spi_reg_bridge} would see
+\code{ss_active} assert once, decode the first five bytes as one \code{BAUD_DIV} write, and treat
+the remaining twenty as a continuation of a transaction that was already over, so nothing after the
+first would be decoded at all. Framing is not visible in a list of MOSI bytes, so it has to be
+counted separately, which is why the suite asserts on \code{beginCalls()} and \code{endCalls()} in
+eight different cases. \worth{1}
+
+\answerpart{b}{3}
+\noindent\textbf{(i)}\enspace\textbf{The bytes.} Least significant first, \code{configure(27)}'s
+first transaction puts
+
+\begin{console}
+82 1B 00 00 00
+\end{console}
+
+\noindent on the wire. \worth{1}
+
+\textbf{What the peripheral commits.} The peripheral is not consulted about byte order --- the
+protocol says the first data byte is bits 31--24. So it assembles \code{0x1B000000} and commits that
+to \code{BAUD_DIV}. \code{BAUD_DIV} is bits 15--0, so \code{baud_div} carries \code{x"0000"}.
+
+\code{uart_top}'s guarded conversion then hits its \textbf{second} case,
+\code{unsigned(baud_div) = 0}, and substitutes \code{1}. \code{baud_gen} divides the 50\,MHz clock by
+one, so it ticks every clock:
+
+\begin{console}
+tick rate = 50_000_000 Hz
+baud rate = 50_000_000 / 16 = 3_125_000 baud
+\end{console}
+
+\noindent \textbf{3.125\,Mbaud}, about 27 times the intended rate. The line runs, \code{tx} toggles,
+\code{uart_tx_tb} and \code{uart_regs_tb} are unaffected because neither involves the driver --- and
+nothing at the far end can read a byte. \worth{1}
+
+\medskip\noindent\textbf{(ii)}\enspace The peripheral shifts \code{0x0000000B} out most significant
+first, so the four bytes returned are \code{00 00 00 0B}. Assembled least significant first, the
+first goes to bits 7--0 and the last to bits 31--24:
+
+\begin{console}
+driver holds 0x0B000000
+\end{console}
+
+\noindent\code{status & (1U << status::TX_READY)} is then \code{0}. \code{write()} returns
+\code{false} on every call for ever, and \code{writeBlocking()} --- a bare
+\code{while (!uart.write(byte)) {}} --- spins for ever. The firmware hangs on the first byte it tries
+to send, with the peripheral perfectly healthy and reporting itself ready. \worth{1}
+
+\answerpart{c}{3}
+\textbf{No \code{RX_POP}.} \code{RX_DATA} is a pure read, so the front byte is never discarded.
+RX-valid stays set, and every subsequent \code{read()} polls, finds it set, re-reads the same front
+byte and hands it back. \code{app::EchoNode} echoes the \textbf{first character it ever receives},
+over and over, as fast as the poll loop runs --- the terminal fills with a single repeated character
+and nothing typed afterwards has any effect. It is a very recognizable bench symptom, which is a
+small mercy. \worth{1}
+
+\textbf{Pop before read.} The front byte is discarded before it is looked at, so the \code{RX_DATA}
+read returns whatever the FIFO shows \emph{afterwards}: the next byte if one has already arrived, or
+stale empty-FIFO data if not. Every byte is either skipped outright or delivered one position late,
+and the stream is silently corrupted rather than stalled --- which is harder to diagnose than the
+first mistake, not easier. \worth{1}
+
+\textbf{The pop on empty.} The test is \textbf{\code{Uart.ReadWhenEmptyReturnsFalseAndDoesNotPop}}:
+\code{read()}, on no data, must report failure and issue no \code{RX_POP}, so the record holds one
+transaction, not three. What the stray pop actually does to \emph{this} peripheral: \code{fifo}
+guards \code{rd} on \code{not empty}, so it is dropped and no queued byte is lost.
+
+``Nothing bad happens'' is not a defence, for three reasons:
+\begin{itemize}
+  \item The guard is an implementation detail of \code{fifo}, \textbf{not a promise the register
+    map makes}. The protocol says \code{RX_POP} discards the front byte; it does not say what
+    happens when there is not one.
+  \item It costs a five-byte SPI transaction on every idle poll, which on a poll loop with an empty
+    FIFO is most of the bus traffic and most of the latency.
+  \item A driver that depends on an unspecified guard breaks against the first compliant peripheral
+    that does not have one, and it will break on the bench rather than on the host.
+\end{itemize}
+\worth{1}
+
+\answerpart{d}{3}
+\textbf{Why the three are not \code{const}.} \code{begin()}, \code{transfer()} and \code{end()}
+drive \code{SS} and shift real bytes through real hardware. They are \textbf{actions with side
+effects}, not observations, and marking them \code{const} would be a lie about what calling them
+does --- to the reader first and to the optimizer second. \worth{1}
+
+\textbf{What the cast does, and why it is not needed here.}
+\code{const_cast<transport::Interface&>(myTransport)} yields a non-\code{const} reference the three
+methods can be called on --- but it strips nothing, because the enclosing \code{const} never reached
+the transport.
+
+The compiler would accept the calls \textbf{without} it as \code{Uart} is written today, because
+\code{myTransport} is a \textbf{reference member}: \code{const} does not propagate through a
+reference, so inside a \code{const} method \code{myTransport} still names a
+\code{transport::Interface&}. The cast is documentation of intent rather than a requirement.
+
+It becomes genuinely required the moment the transport is held differently --- by value, or behind a
+\code{const}-propagating handle --- because then the object's \code{const} reaches the member and the
+calls stop compiling. Writing it now means that change is a one-word edit rather than a redesign.
+\worth{1}
+
+\textbf{The undefined case.} Casting away \code{const} is undefined behaviour when the object being
+cast is \textbf{actually \code{const}} --- declared \code{const}, or a temporary bound to a
+\code{const} reference --- and is then modified through the resulting reference. That is not what
+happens here: \code{myTransport} refers to a real, non-\code{const} transport that the caller
+constructed and owns (a \code{Stub} on the host, an \code{AvrSpi} on the target), so driving it is
+defined. The one hard rule is to cast away \code{const} only on an object that is not genuinely
+\code{const}, and this obeys it. \worth{1}
+
+% ==========================================================================================
+\answersection{7}{The real transport, and the real toolchain}{11}
+
+\answerpart{a}{4}
+\textbf{What each statement achieves.}
+\begin{itemize}
+  \item \code{DDRB |= ...} makes \code{SCK} (PB5), \code{MOSI} (PB3) and \code{SS} (PB2)
+    \textbf{outputs}.
+  \item \code{PORTB |= (1U << SS)} idles the chip select \textbf{high}, that is deasserted, before
+    any transaction.
+  \item \code{SPCR = ...} enables the peripheral, selects master, and sets the prescaler.
+\end{itemize}
+\worth{1}
+
+\textbf{How \code{SPCR} delivers the contract, and the bits left clear.}
+
+\begin{booktable}{@{}p{3.6em}p{3.4em}L@{}}
+  \thead{Bit} & \thead{State} & \thead{What it gives} \\
+  \midrule
+  \code{SPE} & set & The SPI peripheral is enabled. \\
+  \code{MSTR} & set & Master: the ATmega generates \code{SCK}, and the FPGA is the slave. \\
+  \code{SPR0} & set & With \code{SPR1} clear and \code{SPI2X} clear, the prescaler is 16:
+    16\,MHz / 16 = \textbf{1\,MHz}. \\
+  \code{DORD} & \textbf{clear} & \textbf{MSB first}, in every byte, as the protocol requires. \\
+  \code{CPOL} & \textbf{clear} & \code{SCK} \textbf{idles low}. \\
+  \code{CPHA} & \textbf{clear} & Sample on the \textbf{leading} edge. With \code{CPOL} clear that is
+    the rising edge. \\
+  \code{SPIE} & \textbf{clear} & No SPI interrupt. The transport polls, which is why it needs neither
+    \code{<avr/interrupt.h>} nor any ISR. \\
+  \code{SPR1} & \textbf{clear} & Half of the prescaler selection above. \\
+\end{booktable}
+
+\code{CPOL = 0} together with \code{CPHA = 0} \textbf{is} SPI mode 0, which is what Part~3 of the
+protocol asks for. So all three requirements --- mode, order and rate --- are met by bits that are
+\emph{not} set, which is exactly why an answer that lists only the three bits present is incomplete.
+\credit{2 marks}
+
+\textbf{Why \code{MISO} appears nowhere.} It is an input at reset and must stay one, so the
+constructor has nothing to do to it. The book's rule is that the constructor touches only what it
+must, so that the destructor can put back exactly that and nothing else --- \code{MISO} was never
+taken, so it is never given back. \credit{half of the last mark}
+
+\textbf{Without the middle statement.} \code{PORTB} resets to zero, so the instant \code{DDRB} makes
+PB2 an output the pin is actively driven \textbf{low}: the chip select is asserted from construction
+onward, with the bus idle. \code{spi_slave} sees \code{ss} fall and loads its first byte, and the
+bridge's byte counter waits at zero. The first transaction therefore still decodes, provided
+\code{SCK} has not moved: \code{begin()}'s drive low is a no-op, the five bytes arrive as a command
+and four data bytes, and \code{end()} raises \code{SS} for the first time, after which every
+transaction is framed normally. That is what makes the omission dangerous rather than loud: nothing
+on the bench and nothing in a MOSI byte log looks wrong, while the contract's idle-high chip select
+has been broken. Any \code{SCK} activity between construction and the first \code{begin()} would be
+counted as the start of a command byte and misalign that whole first transaction, because the only
+boundary the bridge knows is \code{SS} rising, which ties back to 6(a).
+\credit{half of the last mark}
+
+\answerpart{b}{3}
+\textbf{What it returns.} The byte left in \code{SPDR} from the \textbf{previous} exchange. The
+receive buffer still holds the last completed transfer's result, because the transfer just started
+has not shifted a single bit yet --- the write to \code{SPDR} starts the shift, it does not perform
+it. \worth{1}
+
+\textbf{How long it takes.} Eight \code{SCK} periods, one per bit. At 1\,MHz that is \textbf{8\,µs},
+which at 16\,MHz is \textbf{128 ATmega clock cycles} --- an eternity in instructions, and the reason
+the omission is both easy to make and impossible to get away with. \worth{1}
+
+\textbf{What the spin waits on, and the side effect.} The spin waits on \textbf{\code{SPIF}} in
+\code{SPSR}:
+
+\begin{cppcode}
+SPDR = byte;
+while (0U == (SPSR & (1U << SPIF))) {}
+return SPDR;
+\end{cppcode}
+
+\noindent Reading \code{SPSR} while \code{SPIF} is set and \emph{then} reading \code{SPDR}
+\textbf{clears \code{SPIF}}, arming the next transfer. That is not incidental: without it the flag
+would still be set at the top of the next \code{transfer()} and the spin would fall straight
+through, so the correct code owes its correctness to the clearing sequence as much as to the wait.
+
+\textbf{What the driver sees.} On the host mock, which models only the missing wait, every returned
+byte is one exchange stale: the reply to the command byte is discarded anyway, so \code{readReg}
+assembles the replies that belonged to the command exchange and the first three data exchanges --- a
+\code{STATUS} word built from the tail of the previous transaction and the head of this one. On the
+ATmega it is worse, because the transmit side is single-buffered: a write to \code{SPDR} while a
+byte is still shifting sets \code{WCOL} and is discarded. The whole of \code{readReg} runs in about
+the time one byte takes at 1\,MHz, so the dummy writes collide with the command byte and are lost,
+\code{end()} raises \code{SS} with the transaction nowhere near five bytes, and the bridge abandons
+it with no side effects --- a \code{writeReg} built on this \code{transfer} commits nothing either.
+Every \code{SPDR} read returns whatever the receive buffer last completed, never the register's
+bytes, which is the worst kind of bug to meet first on a bench. \worth{1}
+
+\answerpart{c}{2}
+\textbf{What the hardware does.} It clears \textbf{\code{MSTR}} in \code{SPCR} and sets \code{SPIF}.
+The ATmega demotes itself to a \textbf{slave} on the spot, stops driving \code{SCK}, and abandons
+the transfer in flight. This is why \code{SS}/PB2 must be an output in master mode even when
+something else is being used as the chip select --- and here PB2 \emph{is} the chip select, so
+driving it is the transport's job anyway. \worth{1}
+
+\textbf{What the spin does, and the symptom.} The spin in flight ends \textbf{immediately}, because
+the demotion set \code{SPIF}, and \code{transfer()} returns a byte that was never clocked in: that
+call succeeds, wrongly. The next one is where it stops. The SPI is now a slave, so writing
+\code{SPDR} only loads the shift register and waits for a master's \code{SCK} that nobody drives;
+\code{SPIF} never sets, and the spin loops for ever.
+
+On the bench: \code{SCK} stops moving on the analyzer, and the firmware freezes inside
+\code{transfer()} one byte after the demotion. Nothing recovers --- the transport configured
+\code{SPCR} once in its constructor and never revisits it, so \code{MSTR} stays clear until the chip
+is reset. \worth{1}
+
+\answerpart{d}{2}
+\textbf{Two host constructs that do not survive.} Any two of:
+\begin{itemize}
+  \item \textbf{Anything from the standard library, \code{std::cout} above all.} There are no
+    iostreams, so debug output goes out the ATmega's \textbf{own} hardware USART: set \code{UBRR0}
+    from \code{F_CPU} and the target baud, enable the transmitter in \code{UCSR0B}, then poll
+    \code{UCSR0A & (1U << UDRE0)} and write \code{UDR0}. (Not to be confused with the FPGA
+    peripheral this book builds.)
+  \item \textbf{Dynamic allocation}, \code{new} or \code{std::make_unique}. There is no
+    \code{operator new}, so everything is static or automatic storage --- which is why every seam in
+    this book is a reference injected into an object living in \code{main}'s frame.
+  \item \textbf{Exceptions and RTTI.} No \code{throw}, no \code{dynamic_cast}, no \code{typeid};
+    errors become return values, which is what \code{write()} returning \code{false} on a full FIFO
+    already is.
+\end{itemize}
+\worth{1}
+
+\textbf{\file{env.cpp}.}
+
+\begin{cppcode}
+void operator delete(void*) noexcept {}
+void operator delete(void*, unsigned int) noexcept {}
+
+extern "C" void __cxa_pure_virtual() {}
+
+extern "C" int  __cxa_guard_acquire(volatile void* g) { return !*(char*)g; }
+extern "C" void __cxa_guard_release(volatile void* g) { *(char*)g = 1; }
+extern "C" void __cxa_guard_abort(volatile void*) {}
+\end{cppcode}
+
+\noindent What emits each reference:
+\begin{itemize}
+  \item \textbf{\code{operator delete}} --- a class with a \textbf{virtual destructor} names the
+    deleting \code{operator delete} in its vtable, even though this code never deletes through a
+    base pointer. Every \code{Interface} in the book has one. \textbf{Both} forms are needed: from
+    C++14 the compiler calls the sized form but requires the unsized one to exist beside it, and only
+    the unsized one is emitted under \code{-fno-sized-deallocation}. On AVR \code{size_t} is
+    \code{unsigned int}, so that is the second parameter's type; \code{std::size_t} is not available
+    to name it.
+  \item \textbf{\code{__cxa_pure_virtual}} --- named by every \textbf{abstract class's} vtable, so
+    \code{driver::uart::Interface} alone is enough to require it. It is called only if a pure virtual
+    is somehow invoked, so an empty body is honest: there is nothing useful to do and nowhere to
+    report it.
+  \item \textbf{\code{__cxa_guard_acquire}, \code{_release} and \code{_abort}} --- the guard around a
+    \textbf{function-local \code{static}}'s one-time initialization. Single-threaded definitions are
+    all a bare-metal target needs.
+\end{itemize}
+
+The \code{extern "C"} on the three \code{__cxa_*} groups is not decoration: the compiler emits calls
+to them by their C names, and C++ mangling would leave the linker with unresolved symbols.
+\code{operator delete} is a C++ operator and must \textbf{not} be \code{extern "C"}. A candidate who
+writes empty bodies but mangles the names has not linked anything.
+
+Accept a subset with a note if the candidate says which construct in \emph{their} design each is
+for; the mark is for knowing that these are compiler-emitted references with no library behind
+them, not for reciting all six.
+
+\textbf{Why it lives in \file{avr/}.} So that the \textbf{host} link keeps libstdc++'s versions.
+Replacing the host's thread-safe static guards and its \code{operator delete} with these
+single-threaded, hand-written ones would change the behaviour of the build the tests actually run on,
+for no benefit whatever. The file exists to satisfy a linker that has no C++ runtime, and the host
+has one. \worth{1}
+
+% ==========================================================================================
+\answersection{8}{The bench}{12}
+
+\answerpart{a}{4}
+\credit{2 marks for the order and completeness of the chain, 1 for the chapters and planes, 1 for
+the representations}
+
+\begin{booktable}{@{}rL>{\raggedright\arraybackslash}p{8.4em}>{\raggedright\arraybackslash}p{7.4em}@{}}
+  \thead{\#} & \thead{Module} & \thead{Built in} & \thead{Plane} \\
+  \midrule
+  1 & the USB-serial adapter to the DE0-CV \code{rx} pin & provided hardware & data \\
+  2 & \code{sync} on the \code{rx} pin & \chapref{3} & data \\
+  3 & \code{uart_rx} & \chapref{3} & data \\
+  4 & the RX \code{fifo} & \chapref{4}, instantiated in \chapref{5} & data \\
+  5 & \code{uart_regs} & \chapref{5} & the boundary between the two \\
+  6 & \code{spi_reg_bridge}, then \code{spi_slave} & provided & control \\
+  7 & \code{AvrSpi} & \chapref{9} & control \\
+  8 & \code{Uart::readReg}, then \code{Uart::read} & \chapref{7} & control \\
+  9 & \code{app::EchoNode::run} & \chapref{10} & neither: it is the application \\
+  10 & \code{Uart::write}, then \code{Uart::writeReg} & \chapref{7} & control \\
+  11 & \code{AvrSpi}, then \code{spi_slave} and \code{spi_reg_bridge} & \chapref{9}, provided &
+    control \\
+  12 & \code{uart_regs} and the TX \code{fifo} & Chapters~5 and~4 & the boundary again \\
+  13 & the TX feeder in \code{uart_top} & \chapref{5} & data \\
+  14 & \code{uart_tx} & \chapref{2} & data \\
+  15 & the DE0-CV \code{tx} pin, the adapter, the terminal & provided hardware & data \\
+\end{booktable}
+
+\code{baud_gen} (\chapref{2}) paces both 3 and 14 and is on the data plane throughout;
+\code{reset_sync} (provided) is on neither and is in every clock domain. \code{uart_top}
+(\chapref{1}) is the file that holds all of it together and is not itself a step.
+
+\textbf{The three representations.}
+\begin{enumerate}
+  \item A \textbf{UART frame on the wire}: a low start bit, eight bits least significant first, a
+    high stop bit, timed by the baud rate.
+  \item A \textbf{register field over SPI}: the low eight bits of a 32-bit word, carried most
+    significant byte first inside a five-byte transaction.
+  \item A \textbf{\code{uint8_t}} in the driver and the application.
+\end{enumerate}
+
+It changes at \textbf{\code{uart_regs}}, where a frame that has become a FIFO entry becomes a
+register field, and again at \textbf{\code{Uart::readReg}}, where four SPI bytes become a
+\code{uint32_t} and then a \code{uint8_t}. On the way out it changes back at the same two places, in
+the reverse order. Naming those two places is the point of the exercise: everything else on the
+list is transport.
+
+\answerpart{b}{3}
+\textbf{What the ladder has cleared.}
+\begin{itemize}
+  \item \textbf{Rung a}, the data-plane pin loopback: the USB-serial adapter, its 3.3\,V logic
+    levels, the two data-plane wires and their crossover, and the FPGA pin assignment. None of the
+    candidate's logic is in that path, which is what makes it a clean result. What it cannot clear is
+    the terminal's baud setting: the terminal talks to itself, and a loopback agrees with itself at
+    any rate, for the same reason rung c does.
+  \item \textbf{Rung b}, the control plane: the level shifter on all four SPI lines,
+    \code{AvrSpi}'s configuration, \code{spi_slave} and \code{spi_reg_bridge}, and the bank's write
+    and read paths --- proven by a \code{BAUD_DIV} write and read-back.
+  \item \textbf{Rung c}, the peripheral loopback: the whole datapath on real silicon at a real
+    50\,MHz --- \code{baud_gen}, \code{uart_tx}, \code{uart_rx}, both FIFOs, the TX feeder and the
+    register bank.
+\end{itemize}
+\worth{1}
+
+\textbf{What is left.} The peripheral talking to a \textbf{different device}, with a \textbf{second,
+independently generated baud rate} that now has to agree with the peripheral's own. Rung d is the
+first rung at which any absolute timing requirement exists at all.
+
+\textbf{The likely cause, and why rung c hides it.} A \textbf{baud mismatch}. In loopback the
+transmitter and receiver are driven by the \emph{same} \code{baud_gen}, from the \emph{same}
+50\,MHz clock, with the \emph{same} \code{BAUD_DIV}. Any divider whatsoever passes rung c ---
+including a wildly wrong one --- because both ends are wrong by exactly the same amount and the frame
+is still sixteen ticks per bit at both ends. Rung d is the first time the number has to be right in
+absolute terms.
+
+The two symptoms together point the same way: corruption in both directions is a \emph{timing}
+disagreement. A broken, uncrossed or floating data-plane wire gives silence, not wrong characters.
+\worth{1}
+
+\textbf{The arithmetic.}
+
+\begin{console}
+tick rate = 50_000_000 / 27      = 1_851_851.9 Hz
+baud      = 1_851_851.9 / 16     = 115_740.7
+error     = (115_740.7 - 115_200) / 115_200 = +0.47%
+\end{console}
+
+\noindent Question~3 puts this receiver's combined tolerance at roughly \textbf{+2.5\,\% /
+$-$7.7\,\%}, so 0.47\,\% is nowhere near the edge and \code{BAUD_DIV = 27} is \textbf{exonerated}.
+To blame the divider you would need a percent-scale error, and the direction matters, because
+Question~3 found this receiver's budget lopsided. A \code{BAUD_DIV} of \textbf{28} gives
+111\,607~baud, $-3.1$\,\%: this receiver's ticks are then 3.2\,\% longer than the terminal's, beyond
+the +2.56\,\% fast-transmitter limit, so typed characters fail while the driver's own bytes, read by
+the terminal's receiver with its full five percent, still arrive. A \code{BAUD_DIV} of \textbf{26}
+gives 120\,192~baud, +4.3\,\%: inside this receiver's 7.7\,\% on the other side, and only marginal at
+the terminal. Neither produces what this bench shows, corruption in \emph{both} directions, which
+takes a bigger error: a terminal set to 57600 or 9600 rather than 115200 --- the one setting rung a
+cannot check --- or a board clock that is not actually 50\,MHz, which would move both halves of the
+peripheral together and so would also have been invisible at rung c. Those are the places to look,
+in that order. \worth{1}
+
+\answerpart{c}{3}
+\textbf{The \code{main}.}
+
+\begin{cppcode}
+/**
+ * @brief Application entry point for the ATmega328P.
+ */
+#include <stdint.h>
+
+#include "app/echo_node.hpp"
+#include "driver/transport/avr_spi.hpp"
+#include "driver/uart/uart.hpp"
+
+int main()
+{
+    constexpr uint16_t baudDiv{27U};
+
+    driver::transport::AvrSpi transport{};
+    driver::uart::Uart        uart{transport};
+    uart.configure(baudDiv);
+
+    app::EchoNode node{uart};
+
+    volatile bool stop{false};
+    node.run(stop);
+
+    return 0;
+}
+\end{cppcode}
+\credit{2 marks}
+
+The marks are in the \textbf{order and the ownership}, not the punctuation:
+\begin{itemize}
+  \item \textbf{Bottom-up construction.} Each layer is built before the one that references it, and
+    each is handed up by reference: the transport into \code{Uart}, \code{Uart} into
+    \code{EchoNode}. A candidate who constructs \code{EchoNode} first has nothing to give it.
+  \item \textbf{\code{configure()} before \code{run()}}, and \code{27} for 115200 --- the one number
+    on this page that comes from Part~1's formula rather than from a header. Configure after starting
+    the loop and the first bytes go out at whatever the reset divider produces.
+  \item \textbf{Nothing is allocated.} Three plain locals in \code{main}'s frame, living until the
+    program ends, which on this target is never. This is the freestanding constraint paying off
+    rather than biting: the design was reference-injected from \chapref{6}, so the target needs no
+    \code{operator new} and none is available. A candidate reaching for \code{new} here has not
+    understood what \chapref{9} removed.
+  \item \textbf{\code{main} is the only file that names concrete types.} \code{EchoNode} sees an
+    interface, \code{Uart} sees an interface; swapping the transport for the \chapref{8} stub is an
+    edit to these three lines and nothing else.
+\end{itemize}
+
+\code{return 0} is unreachable, and that is fine: \code{run()} never returns with \code{stop} held
+\code{false}. Accept an infinite loop after \code{run()} instead, or \code{for(;;)} in place of the
+return; do not accept a \code{main} that falls off the end into avr-libc's exit path with the
+peripheral still live.
+
+\textbf{Why the flag is \code{false} here.} On the bench there is nobody to stop it: the node should
+echo for as long as the board has power, so \code{stop} is a \code{volatile bool} that nothing ever writes
+and \code{run()} is an infinite loop by construction. In the host test the very same parameter is
+what \emph{ends} the run --- the UART stub of \chapref{6} sets the caller's flag \code{true} the
+moment its scripted RX buffer runs out. One flag, taken by \code{const volatile bool&} and read every pass,
+serves both: production runs forever because nothing sets it, and the test terminates because
+something does. That is why it is a reference rather than a return value or a one-time check.
+
+\textbf{Why not \code{readBlocking()}.} It would spin inside \code{Interface::read()} until a byte
+arrived, and would therefore never return to the top of the loop --- so \code{stop} would never be
+read again. The application could not be stopped by anybody, including its own test.
+
+That connects directly to how the host test ends: the UART stub of \chapref{6} sets the caller's
+\code{stop} flag \code{true} the moment its scripted RX buffer runs out, and \code{run()} sees it on
+the \textbf{next pass}. With a blocking read there is no next pass; the test hangs instead of
+finishing, which is the test telling you the loop is not actually stoppable. \worth{1}
+
+Worth crediting if a candidate volunteers it: the \emph{write} is allowed to block, and the asymmetry
+is deliberate. The byte is already in hand, there is nothing else the loop could usefully do with
+it, and waiting cannot deadlock because the TX FIFO is drained by hardware whether software
+cooperates or not. Poll where you might have to give up; block where you have already committed.
+
+\answerpart{d}{2}
+\textbf{Symptom and risk.} The FPGA input is being driven above its own 3.3\,V supply. At best the
+pin misbehaves and the control plane is unreliable --- a \code{BAUD_DIV} write that reads back wrong,
+or intermittently right, which is the worse of the two because it looks like a software problem. At
+worst the pin's protection diode conducts into the 3.3\,V rail and the pin, or the I/O bank, is
+damaged. This is the one genuine electrical hazard on the bench, which is why the wiring is checked
+before power is applied.
+
+\textbf{The first rung that exposes it.} \textbf{Rung b}, the control plane. Rung a cannot: the
+data-plane pin loopback has no SPI in it at all, running entirely between the adapter and the FPGA,
+both at 3.3\,V, with the shifter not in the circuit. That is precisely the property that makes
+\textbf{rung a} a useful rung --- it clears the things it clears and nothing else. \worth{1}
+
+\textbf{The safe line.} \textbf{\code{MISO}}. It is the only one of the four that travels from the
+FPGA to the Nano, 3.3\,V \emph{up} to 5\,V, so nothing over-drives a 3.3\,V input. It usually works
+unshifted because the ATmega's input-high threshold at $V_{cc} = 5$\,V is $0.6 \times V_{cc} =
+3.0$\,V, and 3.3\,V clears it.
+
+What can still go wrong: the margin is \textbf{0.3\,V}. A loaded or slow edge, a long breadboard
+wire, a supply that has sagged under the FPGA's draw, or a warm room can drop a \code{1} below the
+threshold --- producing an intermittent, wiring- and temperature-dependent read failure. That is
+considerably worse to debug than a line that never works at all, and it is why ``it mostly works''
+is not an acceptable state for this line either. \worth{1}

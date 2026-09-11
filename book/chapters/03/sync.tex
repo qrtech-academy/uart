@@ -1,0 +1,97 @@
+% Section 3.1, from lectures/L03/appendix/a_sync.md.
+
+\section{Designing \code{sync.vhd}}
+\label{c3:sec:sync}\label{c3:app:a}
+The \code{rx} line arrives from another chip. Nothing in this FPGA has ever governed it, so it can
+change at any instant relative to \code{clock}, including inside a flip-flop's setup-and-hold
+window. Sample it directly and that flop can go metastable: sit between 0 and 1 for a while before
+resolving, and resolve either way. Digital design with VHDL solved this with two flip-flops in
+series, and that is all \code{sync} is, written once, properly, for this design to keep.
+
+It is also the only module in the course with nothing UART-specific in it, which is exactly why it
+is reusable. \code{uart_top} instantiates it on the \code{rx} pin, producing \code{rx_s2} for the
+receiver of \secref{c3:app:b}, so the asynchronous crossing is handled by the module that owns the
+pins. The same two-flop idea also guards the three SPI inputs inside the provided \code{spi_slave},
+though that block, being provided and self-contained, spells it out inline rather than depending on
+your module.
+
+\subsection{Interface}
+\label{c3:sec:sync_interface}
+
+\bookfigure{sync}{Module \code{sync}}{c3:fig:sync}
+
+\begin{booktable}{@{}p{6.4em}p{3.2em}p{17.6em}L@{}}
+  \thead{Port / generic} & \thead{Dir} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \code{COUNT} & generic & \code{natural range 1 to 15 := 1} & Number of independent bits to
+    synchronize. \\
+  \code{clock} & in & \code{std_logic} & 50\,MHz system clock, the domain being crossed
+    \emph{into}. \\
+  \code{reset_s2_n} & in & \code{std_logic} & Active-low synchronized reset. \\
+  \code{async_in} & in & \code{std_logic_vector(COUNT-1 downto 0)} & The asynchronous input or
+    inputs. \\
+  \code{sync_out} & out & \code{std_logic_vector(COUNT-1 downto 0)} & The same bits, safe to use in
+    this domain. \\
+\end{booktable}
+
+\code{sync_tb} binds the ports positionally, and the \textbf{generic map is positional too}, so
+\code{COUNT} must be the module's only (or first) generic. The testbench instantiates the module
+twice, at the default count and at count 4, so both the scalar case and the generic are exercised.
+\code{sync} reads no package, so its analyze line is just the module and its testbench, nothing
+else.
+
+\code{uart_top} uses it at \code{COUNT = 1} for \code{rx}. The generic earns its place by being
+exercised and by staying reusable; a wider instance is a one-line change should a later design want
+to synchronize a bus of switches or pins.
+
+\subsection{Behaviour}
+\label{c3:sec:sync_behaviour}
+Two flip-flops per bit, in series, on the rising edge of \code{clock}. The first may go metastable;
+the second gives it a full clock period to settle before anything downstream sees it. So
+\code{sync_out} follows \code{async_in} after \textbf{exactly two} rising edges: not one (one flop
+is not a synchronizer) and not three.
+
+Two choices are deliberate. The first is the \textbf{reset, and which reset it is}. \code{sync}
+clears both flops on \code{reset_s2_n}, asserted asynchronously so the chain starts from a known
+state with no clock needed, exactly as the rest of the design does. Note carefully \emph{which}
+reset that is: \code{reset_s2_n} is the \textbf{already-synchronized} one, produced by the provided
+\code{reset_sync} in \code{uart_top}.
+
+That asymmetry is the point, and it is why \code{sync} cannot be the reset synchronizer, however
+alike the two look. \code{reset_sync} takes the raw asynchronous \code{reset_n} and manufactures a
+clean one; \code{sync} \textbf{consumes} the clean one it produces. A module that needs
+\code{reset_s2_n} as an input cannot be the module that creates it, so the two stay separate even
+though both are two flops in series.
+
+The second is \textbf{the count generic}, under which each bit crosses independently. That is fine
+for independent signals, and it is the reason a plain synchronizer is \emph{not} a general answer
+for a multi-bit value whose bits must stay coherent: two bits that change together may land one
+clock apart. \code{rx} is a single bit, so the question does not arise here, but it is worth knowing
+before reaching for a wide instance on a counter.
+
+\subsection{What the testbench pins down}
+\label{c3:sec:sync_tb}
+\code{sync_tb} checks that \code{sync_out} follows \code{async_in} after exactly two rising edges,
+low-to-high and high-to-low alike; that at \code{COUNT = 4} all four bits arrive together, two edges
+after the input changed; and that a steady input leaves \code{sync_out} steady, so the output tracks
+the input rather than the intermediate flop.
+
+It also checks the reset from both sides. Held low, the outputs stay clear whatever the input does.
+Asserted \emph{between} clock edges with a known non-zero output standing, the outputs must clear
+\textbf{immediately} rather than at the next edge, a check that fails against a synchronous reset
+and is how the testbench pins down that this one is asynchronous. Released, the chain must
+re-synchronize and take the full two edges again.
+
+Deleting one flip-flop is the exact bug this testbench exists to catch, and it is a bug no
+functional simulation would otherwise reveal, because nothing in a simulator is ever metastable.
+
+\subsection{Where it fits}
+\label{c3:sec:sync_fits}
+In \code{uart_top}, the \code{rx} pin goes through \code{sync} before any logic looks at it, and the
+receiver of \secref{c3:app:b} reads only the synchronized copy, \code{rx_s2}. Because \code{sync}'s
+ports are vectors even at \code{COUNT = 1}, a scalar \code{rx} needs a one-element signal on each
+side; that wiring is part of the exercise in \chapref{4} that adds the receive path to the top.
+
+\subsection{What's ahead}
+\secref{c3:sec:uart_rx} builds \code{uart_rx}, the receiver, which takes the synchronized \code{rx}
+and recovers a byte from it by oversampling.

@@ -1,0 +1,231 @@
+% Section 6.3, from lectures/L06/appendix/b_exercises.md.
+
+\section{Exercises}
+\label{c6:sec:exercises}\label{c6:app:b}
+
+\begin{aside}
+\textbf{How to work these.} These exercises build the driver's three contracts from
+\secref{c6:sec:driver_stack}: the register map, the transport interface, and the driver interface.
+All three are header-only declarations, so there is nothing to run yet; \chapref{7} implements the
+driver over them and \chapref{8} brings the first tests. Exercise~\ref{c6:ex:4.1} then implements
+the driver interface once, as a UART stub.
+
+\textbf{How to check your work.} For now the check is simply that each header compiles. Nothing in
+\file{fw/Makefile} compiles a header on its own yet (\code{make build} waits for the
+\file{source/main.cpp} of \chapref{8}, and \code{make test} for the headers of \chapref{8}), so
+compile each one by hand, from \file{fw/}:
+
+\begin{shell}
+cd fw
+for h in driver/uart/register_map.hpp driver/transport/interface.hpp driver/uart/stub.hpp; do
+    echo "#include \"$h\"" | g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only -x c++ -
+done
+\end{shell}
+
+\noindent Every exercise in this chapter is code, so Appendix~\ref{sol:ch} has nothing to add here.
+The names below are the contract the host suite of \chapref{8},
+\file{fw/test/uart/uart_test.cpp}, binds to, and that suite is where these headers are first put to
+work.
+\end{aside}
+
+Work in \file{fw/}. Create the following files:
+
+\begin{console}
+include/
+    driver/
+        uart/
+            register_map.hpp
+            interface.hpp
+            stub.hpp
+        transport/
+            interface.hpp
+\end{console}
+
+The register map and the driver interface live in the \code{driver::uart} namespace; the transport
+interface lives in \code{driver::transport}. The names below are the contract the tests of
+\chapref{8} bind to, so keep them as written.
+
+\textbf{Write it AVR-portable.} These headers compile on the host (g++) now and, from \chapref{9},
+on the ATmega328P. \textbf{We deliberately skip several modern C++ features here because the AVR
+toolchain does not support them}, and the same driver code has to build for both targets, so stay on
+the subset that toolchain accepts. The reference point is the AVR/GNU C++ compiler bundled with
+Microchip Studio, which is several GCC releases behind a desktop g++; something compiling on your
+host, or even on a Linux avr-g++, does not mean it will compile there.
+
+Include \code{<stdint.h>}, and \code{<stddef.h>} if you need \code{size_t}, and use the bare types
+\code{uint8_t}, \code{uint16_t}, \code{uint32_t} and \code{size_t}: the AVR toolchain ships no C++
+standard library, so there is no \code{<cstdint>} and no \code{std::} namespace at all, and anything
+reaching for either will fail.
+
+Write namespaces as nested \textbf{blocks}, \code{namespace driver { namespace uart { ... } }},
+because the compact C++17 form \code{namespace driver::uart { ... }} does not compile there. Leave
+out \code{[[nodiscard]]}, which it rejects for the same reason. What you can rely on is
+\code{noexcept}, \code{override}, \code{final}, \code{= default}, and pure \code{= 0}.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The Register Map}
+\label{c6:set:1}
+
+\exercise{\code{register_map.hpp}}{C++}
+\label{c6:ex:1.1}
+In \file{include/driver/uart/register_map.hpp}, transcribe the register map from Part~2 of the
+protocol (\secref{proto:part2}) as \code{constexpr} constants. Plain \code{constexpr}, not
+\code{inline constexpr}: inline \emph{variables} are a C++17 feature the AVR toolchain does not
+have. At namespace scope \code{constexpr} already implies internal linkage, so each translation unit
+gets its own copy of a compile-time constant, which is exactly what you want and costs nothing.
+These are the same values \file{uart_def.vhd} holds on the other side of the wire; a mismatch is a
+bug you would only find on the bench.
+
+\task{a) Register indices}
+In a nested namespace \code{reg}, add one \code{uint8_t} constant per register index, each one the
+register's offset divided by 4: \code{STATUS = 0}, \code{CTRL = 1}, \code{BAUD_DIV = 2},
+\code{TX_DATA = 3}, \code{RX_DATA = 4}, \code{RX_POP = 5} and \code{ERROR_FLAGS = 6}.
+
+\task{b) \code{STATUS} bit positions}
+In a nested namespace \code{status}, add one \code{uint8_t} \textbf{bit-position} constant per
+\code{STATUS} bit, meaning the bit's index rather than a mask: \code{TX_READY = 0},
+\code{RX_VALID = 1}, \code{ERROR = 2} and \code{TX_IDLE = 3}. These are the same positions
+\file{uart_def.vhd} defines, so the two sides agree.
+
+You form a mask by shifting at the use site: \code{1U << status::TX_READY} tests that bit, and
+\code{status & (1U << status::RX_VALID)} is non-zero when RX has data.
+
+\task{c) \code{CTRL} and error bit positions}
+In a nested namespace \code{ctrl}, add \code{ENABLE = 0} as a \code{uint8_t} bit position. In a
+nested namespace \code{error}, add \code{FRAMING = 0}, \code{PARITY = 1} and \code{OVERRUN = 2}, all
+\code{uint8_t} bit positions. The VHDL package also defines parity, stop-bit and interrupt-mask
+positions in \code{CTRL}; this driver does not use them yet, so it does not declare them.
+
+Positions rather than masks keep the C++ constants identical to the VHDL \file{uart_def.vhd}, which
+also stores positions, and the one-line \code{1U << pos} at each use site is explicit about which bit
+you mean.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The Transport Interface}
+\label{c6:set:2}
+
+\exercise{\code{driver::transport::Interface}}{C++}
+\label{c6:ex:2.1}
+In \file{include/driver/transport/interface.hpp}, design an abstract class
+\code{driver::transport::Interface} representing a byte-level SPI transport. It exchanges raw bytes
+over one transaction and knows nothing about registers. All methods except the destructor shall be
+pure virtual (\code{= 0}).
+
+\task{a) Destructor}
+Add a destructor that is virtual, marked \code{noexcept}, and implemented using \code{= default}.
+
+\task{b) Begin a transaction}
+Add a pure virtual method \code{begin()} that starts a transaction by pulling \code{SS} low. It takes
+no parameters, returns nothing, and cannot throw exceptions.
+
+\task{c) Exchange one byte}
+Add a pure virtual method \code{transfer()} that exchanges a single byte in full duplex. It takes one
+parameter of type \code{uint8_t}, the byte to send, returns the \code{uint8_t} received at the same
+time, and cannot throw exceptions.
+
+\task{d) End a transaction}
+Add a pure virtual method \code{end()} that ends the transaction by releasing \code{SS}. It takes no
+parameters, returns nothing, and cannot throw exceptions.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The Driver Interface}
+\label{c6:set:3}
+
+\exercise{\code{Interface}}{C++}
+\label{c6:ex:3.1}
+In \file{include/driver/uart/interface.hpp}, design an abstract class \code{driver::uart::Interface},
+the driver's public API. All methods except the destructor shall be pure virtual.
+
+\task{a) Destructor}
+Add a destructor that is virtual, \code{noexcept}, and \code{= default}.
+
+\task{b) Configure}
+Add a pure virtual method \code{configure()} that sets the baud divider and enables the peripheral.
+It takes one parameter of type \code{uint16_t}, the baud divider, returns nothing, and cannot throw
+exceptions.
+
+\task{c) Write a byte}
+Add a pure virtual method \code{write()} that attempts to send one byte. It takes one parameter of
+type \code{uint8_t}, returns \code{true} if the byte was accepted or \code{false} if the transmit
+FIFO was full, and cannot throw exceptions.
+
+\task{d) Read a byte}
+Add a pure virtual method \code{read()} that attempts to receive one byte. It takes a reference to a
+\code{uint8_t} where the received byte will be stored, returns \code{true} if a byte was received and
+\code{false} otherwise, and cannot throw exceptions.
+
+\task{e) Status and errors}
+Add three more pure virtual methods, none of which throws. \code{status()} returns the raw
+\code{STATUS} register as a \code{uint32_t}, takes no parameters, and does not modify the object
+(\code{const}). \code{errorFlags()} returns the raw \code{ERROR_FLAGS} register as a
+\code{uint32_t}, also taking no parameters and also \code{const}. \code{clearErrors()} clears the
+error flags, takes no parameters, and returns nothing.
+
+% ------------------------------------------------------------------------------------------
+\exerciseset{The UART Stub}
+\label{c6:set:4}
+
+\exercise{\code{driver::uart::Stub}}{C++}
+\label{c6:ex:4.1}
+The three headers above are all declarations. This one is the first concrete class of the C++
+half, and it is worth writing now rather than later, because it needs nothing except the interface
+you just declared: a \textbf{UART stub}, a \code{driver::uart::Interface} a test can drive.
+
+It plays back scripted bytes on \code{read()} and records the bytes an application \code{write()}s,
+so a test can queue input, run something over it, and check what came out. It is the same idea as
+the \code{driver::transport::Stub} you write in \chapref{8}, one layer up: that one fakes the wire
+under the driver, this one fakes the driver under an application. Write it in
+\file{include/driver/uart/stub.hpp}, header-only, in the \code{driver::uart} namespace, in the same
+AVR-portable style as everything else here; it holds no dynamic memory, so it compiles for the
+target as well as the host.
+
+Because a UART is a byte stream, both directions are \textbf{FIFO}: bytes are received and recorded
+in the order they arrive. But a test queues a bounded number of bytes and reads them once, so the
+storage is two plain \textbf{linear buffers} with no wraparound to reason about: two fixed
+\code{uint8_t} arrays, each with a length. The \textbf{RX} buffer is read front to back through an
+advancing index, so \code{read()} hands back the byte at the index and advances it, and the length
+is how many bytes were queued. The \textbf{TX} buffer is a write-only append log, so \code{write()}
+appends one byte and bumps the length, and the test reads the whole log back afterwards.
+
+\textbf{Member variables}, using a fixed capacity \code{OurBufLen} and \code{uint8_t} throughout,
+with no \code{size_t}. \code{myRxBuf[OurBufLen]}, with \code{myRxLen} and \code{myRxIdx}, holds the
+scripted bytes to receive and tracks how far \code{read()} has advanced through them.
+\code{myTxBuf[OurBufLen]}, with \code{myTxLen}, holds the bytes the application has sent, appended
+in order.
+
+The third is \code{volatile bool& myStop}, a reference to a caller-owned flag, set \code{true} when
+\code{read()} reaches the end of the RX buffer. That one needs a word of explanation this early: in
+\chapref{10} you write an application whose \code{run(const volatile bool& stop)} loops until the flag is
+set, and a single-threaded test has no other way to end it. The stub feeds every scripted byte and
+then, once the input is exhausted, asks the loop to stop. The flag is \code{volatile} because it is
+written outside the loop that reads it; \chapref{10} says why that matters. Because it is a reference member, copy and
+move are deleted, as is the default constructor, since you need a stop flag to build one.
+
+\textbf{Methods}, the six from \code{driver::uart::Interface} plus scripting helpers. The
+constructor, \code{Stub(volatile bool& stop)}, is \code{explicit}, stores the stop reference, and leaves both
+buffers empty. \code{configure(uint16_t)} does nothing, since the stub has no baud rate to set.
+\code{write(uint8_t byte)} appends \code{byte} to \code{myTxBuf} if there is room and returns
+\code{true}, as a UART with room in its TX FIFO would, and returns \code{false} if the buffer is
+full. \code{read(uint8_t& byte)} hands back \code{myRxBuf[myRxIdx++]} and returns \code{true} when
+\code{myRxIdx < myRxLen}, and otherwise sets \code{myStop} to \code{true} and returns \code{false};
+that empty-case flag is the loop's off switch. \code{status()}, \code{errorFlags()} and
+\code{clearErrors()} are trivial, returning \code{0} or doing nothing, because the applications
+tested this way drive the UART through \code{read()} and \code{write()} rather than the status
+register.
+
+Three helpers exist for the tests. \code{injectRxByte(uint8_t byte)} appends one scripted byte to
+\code{myRxBuf}, returning \code{false} if it is full, and is called once per byte the application
+should receive. \code{txBuf()} and \code{txLen()} return a pointer to the recorded TX bytes and how
+many there are, so a test reads \code{txBuf()[i]} for \code{i < txLen()} in the order they were
+sent. And \code{reset()} zeroes both lengths, the read index and the stop flag, so the stub can be
+reused across tests.
+
+Nothing exercises it yet, which is the honest state of a test double written before the thing it
+doubles for. It compiles, and in \chapref{10} it becomes the entire test harness for
+\code{app::EchoNode}.
+
+\subsection*{What's ahead}
+In \chapref{7} you implement \code{driver::uart::Uart}, which inherits this interface and drives it
+through the register protocol over a \code{driver::transport::Interface}; \chapref{8} then writes the
+scripted \code{driver::transport::Stub} and gets the host tests that check it green. The UART stub
+written here waits until \chapref{10}, where it becomes the test harness for \code{app::EchoNode}.

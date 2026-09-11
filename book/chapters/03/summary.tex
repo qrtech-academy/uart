@@ -1,0 +1,39 @@
+% Section 3.3, from lectures/L03/README.md: the objectives, the evaluation questions, and the next
+% lecture.
+
+\section{Review}
+\label{c3:sec:review}
+
+\needspace{6\baselineskip}
+\subsection*{What you should be able to do now}
+After this chapter, you should be able to:
+\begin{itemize}
+  \item \textbf{Explain why an asynchronous input sampled directly can violate setup and hold}, and
+    place a two-flop synchronizer correctly.
+  \item \textbf{Explain why sampling at mid-bit, tick 8 of 16, maximizes margin against a baud
+    mismatch}, and implement start-bit detection along with mid-bit sampling.
+  \item \textbf{Explain why the receiver leaves idle on a falling edge rather than a low level}, and
+    what a break does to a receiver that tests the level instead.
+  \item \textbf{Detect a framing error}, emitting it as a clean single-cycle pulse alongside
+    \code{valid}, and explain why parity is a natural extension of the same sampling loop while
+    overrun is not the receiver's question to answer at all.
+\end{itemize}
+
+\needspace{6\baselineskip}
+\subsection*{Questions to test yourself}
+You should be able to explain:
+\begin{enumerate}
+  \item Why must \code{rx} pass through \code{sync} before any logic looks at it, and what can go
+    wrong without it?
+  \item The receiver samples at tick 8 of 16: as the transmitter's baud rate drifts from the
+    receiver's, what breaks first, the early bits or the late ones, and why?
+  \item Idle is left on a falling edge rather than on a low level. Which of the three testbench
+    cases fails if you test the level instead, and what does the receiver deliver that it should
+    not?
+\end{enumerate}
+
+\needspace{6\baselineskip}
+\subsection*{Looking ahead}
+\chapref{4} builds the buffer the register bank will need two of: a small synchronous FIFO with a
+look-then-advance read. Then the receive path goes into \code{uart_top}, \code{sync} on the pin and
+\code{uart_rx} behind it, and we work out why overrun is not a question the receiver can answer.

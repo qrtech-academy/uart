@@ -1,0 +1,77 @@
+% Section B.4: the answers to the parts of lectures/L04/appendix/b_exercises.md that are not code.
+% Every testbench message quoted was produced by a design built to Chapters 1 to 5 and broken in
+% exactly the way the part describes.
+
+\section{Chapter 4: The FIFO and the Receive Path}
+\label{sol:c4}
+Exercise~\ref{c4:ex:1} a) is code, \code{fifo}, checked by \code{fifo_tb}; so is all of
+Exercise~\ref{c4:ex:2}, the receive path in \code{uart_top}, which is checked by a clean analysis
+now and by \code{uart_top_tb} in \chapref{5}.
+
+\solution{c4:ex:1}{\code{fifo}}
+\ans{b} After four pushes \code{head} has wrapped round to 0, equal to \code{tail}, and
+\code{count} is 4. The unguarded fifth push stores \code{0x99} in entry 0, over \code{0x11}, the
+oldest byte, which has not been read; advances \code{head} to 1, one past \code{tail}; and raises
+\code{count} to 5. The FIFO now claims five entries in a four-entry ring, and its front byte is
+gone. What the run reports depends on the declaration of \code{count}:
+\begin{itemize}
+  \item As \code{natural range 0 to DEPTH}, the assignment of 5 is out of range, and GHDL stops on
+    the fifth push's edge, before any assertion runs, with a
+    \code{ghdl:error: bound check failure at fifo.vhd:}\emph{n}, where \emph{n} is the line that
+    increments \code{count}.
+  \item As an unconstrained \code{natural}, \code{count} becomes 5, and \code{full}, which is
+    \code{count = DEPTH}, drops. The testbench's own check fires:
+
+\begin{console}
+fifo_tb: still full after a dropped write!
+\end{console}
+\end{itemize}
+Both are failures, and only the second is the testbench talking; the first is the language refusing
+a value the declaration said could not happen, which is what a constrained type is for.
+
+\ans{c} Because the register bus has no read strobe. A read in this design is not an event: the
+bridge sets \code{reg_addr}, the bank's read mux presents \code{reg_rdata} combinationally, and the
+bridge latches the word once, one cycle after the command byte. The bank never learns that a read
+has happened, let alone when it finished. A FIFO whose only read operation was ``read and pop''
+would force the bank to invent a pop out of that non-event, and then decide what it means when the
+transaction is abandoned half-way. Look-then-advance lets \code{RX_DATA} be wired straight to
+\code{rdata}, a pure read with no side effect, like \code{STATUS}, and puts the advance on \code{rd},
+where the separate \code{RX_POP} \emph{write} drives it. Writes are exactly what the bridge already
+commits once, on completion, and never on an abort, so the pop inherits that for free.
+
+\ans{d} \textbf{Eight.} Eight back-to-back frames fill the depth-8 RX FIFO with nothing read; the
+ninth is the first that can be lost. The receiver holds no finished byte of its own: it pushes each
+byte on the one-clock \code{valid} at its stop-bit sample and keeps only the frame it is still
+assembling. So while the ninth frame is on the wire, software has until that frame's stop-bit sample
+to pop one byte, about one frame time, 86.8\,µs at 115200~baud; if the FIFO is still full
+then, the ninth byte is dropped by the FIFO's \code{not full} guard, and every frame after it too.
+
+\textbf{No flag tells software, in this build.} \code{STATUS} bit 1 stays set throughout, which says
+only that there is something to read, and \code{ER_OVERRUN} has no producer, so it reads 0 (see
+\secref{proto:reserved}). The information exists: \code{uart_regs} exports \code{rx_full}, and a
+\code{valid} arriving while it is high is precisely a lost byte. Exercise~\ref{c4:ex:3} is about
+where to latch it.
+
+\solution{c4:ex:3}{Overrun belongs to the register bank}
+\ans{a} An overrun is a byte arriving when there is nowhere to put it, and whether there is anywhere
+to put it depends on whether the previous bytes have been read. \code{uart_rx} does not know that. It
+emits a one-clock \code{valid} and forgets the byte; it has no view of the FIFO behind it or of the
+software behind that. The one piece of information it lacks is \textbf{the consumer's state}, which
+here is the RX FIFO's \code{full} flag.
+
+\ans{b} Add a third latch beside the framing one in \code{uart_regs}: in the clocked process, after
+the write decode, set \code{err_flags(ER_OVERRUN)} when \code{rx_push} and \code{rx_full_s} are both
+high, since that is a push the FIFO is about to drop. It lives in \code{ERROR_FLAGS} bit 2, at the
+position the protocol reserves for it, latched until software writes \code{0x0}, and \code{STATUS}
+bit 2 shows it with no further change, because that bit is already the OR of the three flags. The
+driver's existing \code{errorFlags()} and \code{clearErrors()} then reach it unchanged, which is what
+reserving the position bought.
+
+\ans{c} A \textbf{framing error} is a wire problem: the stop bit was low when it was sampled. The
+causes are on the line or in its configuration: the two ends at different baud rates, a divider
+written wrongly, noise on the stop bit, a sender using a different frame format such as a parity bit
+where the receiver expects the stop bit, or a break, the line held low because a cable came loose
+or the transmitter lost power. An \textbf{overrun} is a software timing problem: every frame on the
+wire was perfect, and the driver simply did not read them as fast as they came, because it was busy
+elsewhere, blocked in a delay, or polling too slowly. A framing error says do not trust this byte; an
+overrun says a good byte was thrown away.

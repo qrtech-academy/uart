@@ -1,0 +1,220 @@
+% Section 2.4, from lectures/L02/appendix/c_exercises.md.
+
+\section{Exercises}
+\label{c2:sec:exercises}\label{c2:app:c}
+
+\begin{aside}
+\textbf{How to work these.} Exercise~\ref{c2:ex:1} reinforces \secref{c2:sec:baud_gen};
+Exercises~\ref{c2:ex:2} and~\ref{c2:ex:3} reinforce \secref{c2:sec:uart_tx}. Design each module from
+the specification in its own section.
+
+\textbf{How to check your work.} The provided testbenches are the check that the modules behave
+correctly. Run them from \file{hw/} with the three GHDL steps; the preface's \emph{Setting up} has
+the full flow and what \code{--assert-level=error} does.
+
+The answers to every part that is not code are in \secref{sol:c2}. Try each part before you read its
+answer.
+\end{aside}
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{baud_gen}}{VHDL}
+\label{c2:ex:1}
+
+\xpart{a} Write your own \code{baud_gen.vhd} from the specification in \secref{c2:sec:baud_gen} and
+run its testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 baud_gen.vhd baud_gen_tb.vhd
+ghdl -e --std=93 baud_gen_tb
+ghdl -r --std=93 baud_gen_tb --assert-level=error
+\end{shell}
+
+\xpart{b} The testbench uses \code{div = 4}. Work out on paper what \code{div} produces 115200~baud
+from the 50\,MHz clock, and confirm it matches \secref{c2:sec:baud_gen}. Why is the divide by
+\code{16 * baud} and not by \code{baud}? Which later module spends those sixteen ticks, and on what?
+
+\xpart{c} Change the comparison in your design from \code{counter >= div - 1} to
+\code{counter = div - 1} and re-run. The testbench still passes; explain why the two are
+indistinguishable for \code{div = 4}. Then say what each version does if \code{div} is ever 0, and
+which of the two keeps the counter inside its declared range.
+
+\xpart{d} \code{tick} is a registered output, one clock wide. Suppose you drove it combinationally
+instead, asserting it whenever \code{counter = div - 1}. Nothing in this testbench would notice;
+name a downstream consumer (in \chapref{2} or \chapref{3}) that counts ticks, and argue whether a
+glitchy or wider \code{tick} would break it.
+
+% ------------------------------------------------------------------------------------------
+\exercise{\code{uart_tx}}{VHDL}
+\label{c2:ex:2}
+
+\xpart{a} Write your own \code{uart_tx.vhd} from the specification in \secref{c2:sec:uart_tx} and
+run its testbench:
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_tx.vhd uart_tx_tb.vhd
+ghdl -e --std=93 uart_tx_tb
+ghdl -r --std=93 uart_tx_tb --assert-level=error
+\end{shell}
+
+\xpart{b} The testbench sends \code{0x53} and checks the data bits \textbf{least significant
+first}. Change your frame packing so it sends most significant first and re-run. Which bit does the
+testbench report first as wrong, and does that match \code{0x53 = 0101_0011} shifted the other way?
+Put it back.
+
+\xpart{c} Now the reason that constant is what it is. Leave your frame packed most significant
+first, change \code{TXBYTE} in \code{uart_tx_tb} to \code{x"A5"}, and re-run: the testbench
+\textbf{passes}, with the transmitter still wrong. Write out the eight data-bit levels under both
+packings and explain why. What property must a byte have for this check to be able to fail at all,
+and how many of the 256 bytes lack it?
+
+Then look at \code{uart_rx_tb} and \code{uart_top_tb} with the same question in mind, and say why a
+loopback testbench could never catch \code{uart_tx} and \code{uart_rx} being reversed
+\textbf{together}, however good its constant was, while each unit testbench catches its own half.
+Put both files back.
+
+\xpart{d} \code{busy} and \code{done} carry different information. Give one job each does that the
+other cannot: what would go wrong in \code{uart_top}'s feeder if it watched \code{done} instead of
+\code{busy} to decide when to load the next byte?
+
+\xpart{e} The frame is captured on \code{start} into a 10-bit vector. Show, by writing out the bits,
+that reading \code{'1' & data & '0'} from index 0 upward gives start, then \code{data(0)} to
+\code{data(7)}, then stop. Then explain why the caller is free to change \code{data} on the very
+next cycle.
+
+\xpart{f} Instantiate \code{baud_gen} and \code{uart_tx} into the \code{uart_top} skeleton from
+\chapref{1}, positionally, and declare the signals they need as you go. Read each entity and let it
+tell you what to add: \code{baud_gen} takes a \code{natural} divider and drives \code{baud_tick};
+\code{uart_tx} takes \code{baud_tick}, a byte and a \code{start} pulse, and drives \code{tx},
+\code{busy} and \code{done}. So \code{uart_top} gains these signals, and no more than that:
+
+\begin{booktable}{@{}p{6.4em}p{15.2em}p{8.2em}L@{}}
+  \thead{Signal} & \thead{Type} & \thead{Driven by} & \thead{Read by} \\
+  \midrule
+  \code{baud_div} & \code{std_logic_vector(15 downto 0)} & \code{uart_regs} (\chapref{5}) &
+    the conversion below \\
+  \code{baud_div_int} & \code{natural range 1 to 65535} & the conversion below & \code{baud_gen} \\
+  \code{baud_tick} & \code{std_logic} & \code{baud_gen} & \code{uart_tx}, and \code{uart_rx}
+    (\chapref{3}) \\
+  \code{tx_byte} & \code{std_logic_vector(7 downto 0)} & \code{uart_regs} (\chapref{5}) &
+    \code{uart_tx} \\
+  \code{tx_load} & \code{std_logic} & the feeder (\chapref{5}) & \code{uart_tx}, and \code{tx_pop}
+    (\chapref{5}) \\
+  \code{tx_busy} & \code{std_logic} & \code{uart_tx} & the feeder and \code{uart_regs}
+    (\chapref{5}) \\
+  \code{tx_done} & \code{std_logic} & \code{uart_tx} & nothing, in this build \\
+\end{booktable}
+
+\modulefigure{baud_gen}
+
+\begin{booktable}{@{}rp{6.4em}p{1.8em}p{12.8em}L@{}}
+  \thead{\#} & \thead{\code{baud_gen} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{div} & in & \code{natural range 1 to 65535} & \code{baud_div_int} \\
+  4 & \code{tick} & out & \code{std_logic} & \code{baud_tick} \\
+\end{booktable}
+
+\begin{vhdlcode}
+-- Generate the 16x oversample tick from the divider the register bank will hold.
+baud_generator: entity work.baud_gen
+    port map(clock, reset_s2_n, baud_div_int, baud_tick);
+\end{vhdlcode}
+
+\modulefigure{uart_tx}
+
+\begin{booktable}{@{}rp{6.4em}p{1.8em}p{15.2em}L@{}}
+  \thead{\#} & \thead{\code{uart_tx} port} & \thead{Dir} & \thead{Type} & \thead{Connect to} \\
+  \midrule
+  1 & \code{clock} & in & \code{std_logic} & \code{clock} \\
+  2 & \code{reset_s2_n} & in & \code{std_logic} & \code{reset_s2_n} \\
+  3 & \code{baud_tick} & in & \code{std_logic} & \code{baud_tick} \\
+  4 & \code{start} & in & \code{std_logic} & \code{tx_load} \\
+  5 & \code{data} & in & \code{std_logic_vector(7 downto 0)} & \code{tx_byte} \\
+  6 & \code{tx} & out & \code{std_logic} & \code{tx}, the \textbf{top-level port} \\
+  7 & \code{busy} & out & \code{std_logic} & \code{tx_busy} \\
+  8 & \code{done} & out & \code{std_logic} & \code{tx_done} \\
+\end{booktable}
+
+\begin{vhdlcode}
+-- Drive the serial line. Port 6 is the transmitter's own tx output, so it binds
+-- to the top-level tx pin, not to a signal.
+uart_transmitter: entity work.uart_tx
+    port map(clock, reset_s2_n, baud_tick, tx_load, tx_byte, tx, tx_busy,
+             tx_done);
+\end{vhdlcode}
+
+\noindent Position 6 is the one to check twice. Every port here is a \code{std_logic} except
+\code{data}, so binding a signal there instead of the \code{tx} pin analyzes cleanly, elaborates
+cleanly, and leaves the pin undriven: the loopback in \code{uart_top_tb} then feeds \code{'U'} back
+into \code{rx}, and the system test fails three chapters later with nothing pointing at this line.
+
+Three signals need a word. \code{tx_byte} has no driver yet, because the FIFO that will fill it
+arrives with \code{uart_regs} in \chapref{5}, and neither does \code{tx_load}, whose feeder you
+write in the same chapter: an undriven signal analyzes and elaborates without complaint, and the
+transmitter simply sits idle. \code{baud_div} is the third, and it needs the \textbf{guarded
+conversion} that turns the register bank's vector into the \code{natural} that \code{baud_gen}
+expects:
+
+\begin{vhdlcode}
+-- baud_gen's div starts at 1, so substitute a legal value rather than hand it a
+-- zero or a metavalue: baud_div has no driver until uart_regs arrives in L05.
+baud_div_int <= 1 when Is_X(baud_div) or unsigned(baud_div) = 0
+                else to_integer(unsigned(baud_div));
+\end{vhdlcode}
+
+\noindent \code{Is_X} comes from \code{std_logic_1164}, and \code{to_integer} and \code{unsigned}
+from \code{numeric_std}, so add that second \code{use} clause now. The guard covers two cases, and
+both of them would otherwise land on \code{0}, which \code{baud_gen} does not accept: its \code{div}
+port is a \code{natural range 1 to 65535}, so a \code{0} reaching it is a bound check failure at run
+time, not a warning you can ignore.
+
+The first case is a \textbf{metavalue}. \code{baud_div} has no driver until \chapref{5} either, so
+it sits at all-\code{'U'}, and \code{to_integer} on an all-\code{'U'} vector prints
+\code{NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0} and carries on. The library quietly
+picks a value you did not choose, and the value it picks is out of range.
+
+The second is a \textbf{real zero}, which arrives with \code{uart_regs} in \chapref{5}:
+\code{BAUD_DIV} holds whatever the bank resets it to until software writes a divider, and that reset
+value is a legitimate \code{0}. The substitute is \code{1} because it is the smallest value the port
+accepts; nothing useful is transmitted at either value, so the only thing that matters is that the
+design elaborates and runs.
+
+VHDL's \code{or} on booleans is short-circuit, so the comparison is never evaluated on the
+all-\code{'U'} vector, and the metavalue case stays warning-free.
+
+\begin{shell}
+cd hw
+ghdl -a --std=93 uart_def.vhd reset_sync.vhd baud_gen.vhd uart_tx.vhd \
+     spi_slave.vhd spi_reg_bridge.vhd uart_top.vhd
+\end{shell}
+
+\noindent The top now drives \code{tx}, but the system testbench stays skipped: the receiver and
+the register bank are still missing. Do the extension in Exercise~\ref{c2:ex:3} on a copy, or after
+this step, since adding ports to \code{uart_tx} changes the positional contract \code{uart_top}
+binds against.
+
+% ------------------------------------------------------------------------------------------
+\exercise{Parity and a second stop bit}{VHDL}
+\label{c2:ex:3}
+8N1 is the only framing \code{uart_tx} produces. Real UARTs let software pick even or odd parity and
+one or two stop bits; in this peripheral those live in the \code{CTRL} register (\chapref{5}), but
+the transmitter is where the extra bits would be sent.
+
+\xpart{a} Extend your \code{uart_tx} with two inputs, \code{parity_en} and \code{parity_odd}, and
+insert a parity bit between the last data bit and the stop bit. Even parity makes the total number
+of 1s (data plus parity) even; odd parity makes it odd. Widen your frame vector and index range to
+match. Give each new input a default of \code{'0'} and declare it after the eight existing ports:
+\code{uart_tx_tb} and \code{uart_top} bind positionally, and a trailing input with a default may be
+left out of a positional map, so this is the one place the inputs-first convention gives way.
+
+\xpart{b} Add a \code{two_stop} input, declared the same way, that appends a second high stop bit.
+Which field of the frame changes length with \code{two_stop}, and what does that do to the total
+frame time at a fixed baud rate?
+
+\xpart{c} \code{uart_tx_tb} checks 8N1 only, so it will still pass with your additions as long as
+the new inputs default to off and come after the existing ports. Confirm that. Then describe, in
+words, the extra testbench case you would add to pin down even parity: what byte would you send,
+and what would you expect on the parity bit?
