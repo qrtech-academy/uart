@@ -15,7 +15,8 @@ One module and one wiring job, both of which L05 depends on. We cover:
   behind it, so the pin crosses into the clock domain once, in the module that owns the pin.
 * **Where overrun lives**: the receiver reports a framing error but can never report an overrun,
   because it does not know whether anyone has read the previous byte. The RX FIFO's `full` flag is
-  what makes it visible, and the register bank in L05 is what reports it.
+  what makes it detectable, and the register bank is where it would be reported: L05 reserves
+  `ER_OVERRUN` for it, but gives it no producer in this build.
 
 ---
 
@@ -88,8 +89,8 @@ to the register bank rather than the receiver.
 ---
 
 ## Next Lecture
-Ports become registers: sticky `STATUS` bits, a write-triggered TX push, the read-then-pop RX path
-over two of the FIFOs you just built, and completing `uart_top` behind the provided SPI transport,
-so the system testbench finally runs.
+Ports become registers: poll-able `STATUS` bits, sticky error flags, a write-triggered TX push, the
+read-then-pop RX path over two of the FIFOs you just built, and completing `uart_top` behind the
+provided SPI transport, so the system testbench finally runs.
 
 ---

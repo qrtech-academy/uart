@@ -4,7 +4,16 @@
 These exercises build the driver's three contracts from [Appendix A](./a_driver_stack.md): the
 register map, the transport interface, and the driver interface. All three are header-only
 declarations, so there is nothing to run yet; L07 implements the driver over them and L08 brings the
-first tests. For now the check is simply that each header compiles.
+first tests. For now the check is simply that each header compiles. Nothing in `fw/Makefile`
+compiles a header on its own yet (`make build` waits for the `source/main.cpp` of L08, and `make
+test` for L08's headers), so compile each one by hand, from `fw/`:
+
+```bash
+cd fw
+for h in driver/uart/register_map.hpp driver/transport/interface.hpp driver/uart/stub.hpp; do
+    echo "#include \"$h\"" | g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only -x c++ -
+done
+```
 
 Work in `fw/`. Create the following files:
 
@@ -58,9 +67,9 @@ offset divided by 4: `STATUS = 0`, `CTRL = 1`, `BAUD_DIV = 2`, `TX_DATA = 3`, `R
 `RX_POP = 5` and `ERROR_FLAGS = 6`.
 
 ### b) STATUS bit positions
-In a nested namespace `status`, add one `uint8_t` **bit-position** constant per `STATUS` bit, meaning
-the bit's index rather than a mask: `TX_READY = 0`, `RX_VALID = 1`, `ERROR = 2` and `TX_IDLE = 3`.
-These are the same positions `uart_def.vhd` defines, so the two sides agree.
+In a nested namespace `status`, add one `uint8_t` **bit-position** constant per `STATUS` bit,
+meaning the bit's index rather than a mask: `TX_READY = 0`, `RX_VALID = 1`, `ERROR = 2` and `TX_IDLE
+= 3`. These are the same positions `uart_def.vhd` defines, so the two sides agree.
 
 You form a mask by shifting at the use site: `1U << status::TX_READY` tests that bit, and
 `status & (1U << status::RX_VALID)` is non-zero when RX has data.
@@ -72,7 +81,8 @@ package also defines parity, stop-bit and interrupt-mask positions in `CTRL`; th
 use them yet, so it does not declare them.
 
 Positions rather than masks keep the C++ constants identical to the VHDL `uart_def.vhd`, which also
-stores positions, and the one-line `1U << pos` at each use site is explicit about which bit you mean.
+stores positions, and the one-line `1U << pos` at each use site is explicit about which bit you
+mean.
 
 ---
 
@@ -144,44 +154,46 @@ It plays back scripted bytes on `read()` and records the bytes an application `w
 can queue input, run something over it, and check what came out. It is the same idea as the
 `driver::transport::Stub` you write in L08, one layer up: that one fakes the wire under the driver,
 this one fakes the driver under an application. Write it in `include/driver/uart/stub.hpp`,
-header-only, in the `driver::uart` namespace, in the same AVR-portable style as everything else here;
-it holds no dynamic memory, so it compiles for the target as well as the host.
+header-only, in the `driver::uart` namespace, in the same AVR-portable style as everything else
+here; it holds no dynamic memory, so it compiles for the target as well as the host.
 
-Because a UART is a byte stream, both directions are **FIFO**: bytes are received and recorded in the
-order they arrive. But a test queues a bounded number of bytes and reads them once, so the storage is
-two plain **linear buffers** with no wraparound to reason about: two fixed `uint8_t` arrays, each
-with a length. The **RX** buffer is read front-to-back through an advancing index, so `read()` hands
-back the byte at the index and advances it, and the length is how many bytes were queued. The **TX**
-buffer is a write-only append log, so `write()` appends one byte and bumps the length, and the test
-reads the whole log back afterward.
+Because a UART is a byte stream, both directions are **FIFO**: bytes are received and recorded in
+the order they arrive. But a test queues a bounded number of bytes and reads them once, so the
+storage is two plain **linear buffers** with no wraparound to reason about: two fixed `uint8_t`
+arrays, each with a length. The **RX** buffer is read front-to-back through an advancing index, so
+`read()` hands back the byte at the index and advances it, and the length is how many bytes were
+queued. The **TX** buffer is a write-only append log, so `write()` appends one byte and bumps the
+length, and the test reads the whole log back afterward.
 
 **Member variables**, using a fixed capacity `OurBufLen` and `uint8_t` throughout, with no `size_t`.
 `myRxBuf[OurBufLen]`, with `myRxLen` and `myRxIdx`, holds the scripted bytes to receive and tracks
-how far `read()` has advanced through them. `myTxBuf[OurBufLen]`, with `myTxLen`, holds the bytes the
-application has sent, appended in order.
+how far `read()` has advanced through them. `myTxBuf[OurBufLen]`, with `myTxLen`, holds the bytes
+the application has sent, appended in order.
 
-The third is `bool& myStop`, a reference to a caller-owned flag, set `true` when `read()` reaches the
-end of the RX buffer. That one needs a word of explanation this early: in L10 you write an
-application whose `run(const bool& stop)` loops until the flag is set, and a single-threaded test has
-no other way to end it. The stub feeds every scripted byte and then, once the input is exhausted,
-asks the loop to stop. Because it is a reference member, copy and move are deleted, as is the default
-constructor, since you need a stop flag to build one.
+The third is `volatile bool& myStop`, a reference to a caller-owned flag, set `true` when `read()`
+reaches the end of the RX buffer. That one needs a word of explanation this early: in L10 you write
+an application whose `run(const volatile bool& stop)` loops until the flag is set, and a
+single-threaded test has no other way to end it. The stub feeds every scripted byte and then, once
+the input is exhausted, asks the loop to stop. The flag is `volatile` because it is written outside
+the loop that reads it; L10 says why that matters. Because it is a reference member, copy and move
+are deleted, as is the default constructor, since you need a stop flag to build one.
 
 **Methods**, the six from `driver::uart::Interface` plus scripting helpers. The constructor,
-`Stub(bool& stop)`, is `explicit`, stores the stop reference, and leaves both buffers empty.
-`configure(uint16_t)` does nothing, since the stub has no baud rate to set. `write(uint8_t byte)`
-appends `byte` to `myTxBuf` if there is room and returns `true`, as a UART with room in its TX FIFO
-would, and returns `false` if the buffer is full. `read(uint8_t& byte)` hands back
+`Stub(volatile bool& stop)`, is `explicit`, stores the stop reference, and leaves both buffers
+empty. `configure(uint16_t)` does nothing, since the stub has no baud rate to set. `write(uint8_t
+byte)` appends `byte` to `myTxBuf` if there is room and returns `true`, as a UART with room in its
+TX FIFO would, and returns `false` if the buffer is full. `read(uint8_t& byte)` hands back
 `myRxBuf[myRxIdx++]` and returns `true` when `myRxIdx < myRxLen`, and otherwise sets `myStop` to
-`true` and returns `false`; that empty-case flag is the loop's off switch. `status()`, `errorFlags()`
-and `clearErrors()` are trivial, returning `0` or doing nothing, because the applications tested this
-way drive the UART through `read()` and `write()` rather than the status register.
+`true` and returns `false`; that empty-case flag is the loop's off switch. `status()`,
+`errorFlags()` and `clearErrors()` are trivial, returning `0` or doing nothing, because the
+applications tested this way drive the UART through `read()` and `write()` rather than the status
+register.
 
 Three helpers exist for the tests. `injectRxByte(uint8_t byte)` appends one scripted byte to
 `myRxBuf`, returning `false` if it is full, and is called once per byte the application should
-receive. `txBuf()` and `txLen()` return a pointer to the recorded TX bytes and how many there are, so
-a test reads `txBuf()[i]` for `i < txLen()` in the order they were sent. And `reset()` zeroes both
-lengths, the read index and the stop flag, so the stub can be reused across tests.
+receive. `txBuf()` and `txLen()` return a pointer to the recorded TX bytes and how many there are,
+so a test reads `txBuf()[i]` for `i < txLen()` in the order they were sent. And `reset()` zeroes
+both lengths, the read index and the stop flag, so the stub can be reused across tests.
 
 Nothing exercises it yet, which is the honest state of a test double written before the thing it
 doubles for. It compiles, and in L10 it becomes the entire test harness for `app::EchoNode`.

@@ -61,15 +61,18 @@ make -C fw/avr flash # avr-gcc + avrdude; see fw/README.md.
 
 Then the same journey on the other chip, demonstrated rather than typed: we synthesize the
 `uart_top` finished in L05 through the provided `uart_board.vhd` wrapper, read the fit and timing
-report, and program the DE0-CV over USB-Blaster. With `tx` jumpered to `rx` the peripheral echoes
-itself, which is the loopback `uart_top_tb` ran in simulation, now at a real 50 MHz.
+report, and program the DE0-CV over USB-Blaster. What the board can show on its own is the
+data-plane pin loopback: with the wrapper's `rx` pin wired straight to its `tx` pin, bypassing
+`uart_top`, a terminal on the USB-serial adapter echoes what you type. The peripheral itself cannot
+be exercised yet: it transmits only what an SPI master writes to `TX_DATA`, and that master is the
+Nano, in L10.
 
 **The 60 minutes.** `AvrSpi` is about forty lines and we type all of it, going through `SPCR` bit by
 bit, because a wrong bit here is a bug you would otherwise meet on a logic analyzer at the bench.
 That leaves room for the Quartus flow, which is demonstrated rather than typed: compile, read the
-fit and timing report, program the board, and jumper `tx` to `rx` to watch the peripheral echo
-itself. The freestanding `main`, the UART logging and synthesizing your own `uart_top` are the
-exercises.
+fit and timing report, program the board, and wire the wrapper's pin loopback to watch a terminal
+echo through the FPGA. The freestanding `main`, the UART logging and synthesizing your own
+`uart_top` are the exercises.
 
 ### After the Lecture
 Work through the [exercises](./appendix/c_exercises.md): implement `AvrSpi` and the freestanding

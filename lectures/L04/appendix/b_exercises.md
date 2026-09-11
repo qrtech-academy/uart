@@ -120,10 +120,10 @@ was read.
 **a)** Explain why `uart_rx`, on its own, cannot detect an overrun. What single piece of
 information does it lack?
 
-**b)** In L05 the RX FIFO's `full` flag is what makes overrun visible: a `valid` byte arriving while
-the FIFO is full is dropped. Sketch, in words, the extra flag you would add so software could tell
-that a byte was lost, and say which register it would live in (see the
-[protocol spec](../../../protocol/uart_register_protocol.md)'s `ERROR_FLAGS`).
+**b)** In L05 the RX FIFO's `full` flag is what would make overrun detectable: a `valid` byte
+arriving while the FIFO is full is dropped. Sketch, in words, the extra flag you would add so
+software could tell that a byte was lost, and say which register it would live in (see the [protocol
+spec](../../../protocol/uart_register_protocol.md)'s `ERROR_FLAGS`).
 
 **c)** A framing error and an overrun have different causes. Give a physical cause for each: what on
 the wire, or in the software's timing, produces one but not the other?

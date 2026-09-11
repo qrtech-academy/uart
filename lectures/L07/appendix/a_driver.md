@@ -23,12 +23,12 @@ carries the operation type in bit 7, `0` for a register read and `1` for a regis
 register index in the low nibble, and any unused bits set as the protocol requires.
 
 A **register read** sends a command byte with the write bit clear and the register index in the low
-nibble, then exchanges four dummy bytes after it. Whatever came back while the command byte was going
-out is ignored; the four bytes returned during the dummy exchanges are the answer, and they assemble
-into a 32-bit value with the first returned byte as the most significant and the last as the least
-significant. This relies on the peripheral's latch-once-then-shift-out behaviour: the register value
-is captured at the end of the command byte, once the address is known, so all four returned bytes
-belong to the same captured value.
+nibble, then exchanges four dummy bytes after it. Whatever came back while the command byte was
+going out is ignored; the four bytes returned during the dummy exchanges are the answer, and they
+assemble into a 32-bit value with the first returned byte as the most significant and the last as
+the least significant. This relies on the peripheral's latch-once-then-shift-out behaviour: the
+register value is captured at the end of the command byte, once the address is known, so all four
+returned bytes belong to the same captured value.
 
 A **register write** sends a command byte with the write bit set and the register index in the low
 nibble, then splits the 32-bit value into four bytes and sends them most significant first, least
@@ -37,8 +37,8 @@ commits the new register value once the fifth byte has been received.
 
 Both operations go through `driver::transport::Interface`, so the driver never depends on a
 particular SPI or hardware implementation. Each transmitted byte passes through the injected
-transport, and the byte each exchange returns is what the read operation collects. That separation is
-what makes the register protocol easy to test against a fake transport.
+transport, and the byte each exchange returns is what the read operation collects. That separation
+is what makes the register protocol easy to test against a fake transport.
 
 **Byte order is critical.** Both reads and writes are most-significant-byte-first. A read must
 reconstruct the result in the same order the peripheral shifts it out, and a write must split the
@@ -50,9 +50,9 @@ sequence is visibly different to the hardware.
 ---
 
 ## The driver
-`Uart` implements the L06 `Interface` using the private register read/write core and the register map
-you transcribed in L06. Its public methods stay short, because the register bank built in L05 already
-provides most of the UART semantics.
+`Uart` implements the L06 `Interface` using the private register read/write core and the register
+map you transcribed in L06. Its public methods stay short, because the register bank built in L05
+already provides most of the UART semantics.
 
 **Writing one byte** reads `STATUS`, checks whether the transmitter can accept another byte, and if
 it can, writes the byte to `TX_DATA` and reports that it was accepted. If it cannot, the driver
@@ -65,10 +65,10 @@ If one is, it reads the byte from `RX_DATA`, keeps it as the result, performs a 
 writes `RX_POP`, and simply reports that nothing was available.
 
 That receive sequence is deliberately three steps: poll `STATUS`, read `RX_DATA`, write `RX_POP`.
-Reading `RX_DATA` is a pure read, returning the byte at the front of the FIFO without removing it, so
-repeated reads return the same byte until an explicit pop happens. Writing `RX_POP` is what advances
-the FIFO, removing the current byte only after it has been read successfully and making the next
-queued byte visible through `RX_DATA`.
+Reading `RX_DATA` is a pure read, returning the byte at the front of the FIFO without removing it,
+so repeated reads return the same byte until an explicit pop happens. Writing `RX_POP` is what
+advances the FIFO, removing the current byte only after it has been read successfully and making the
+next queued byte visible through `RX_DATA`.
 
 The order matters in every direction. Polling first prevents the driver from reading an empty FIFO;
 reading before popping ensures the current byte is not discarded; popping afterwards ensures the
@@ -83,12 +83,10 @@ separate command that advances the FIFO.
 `driver::transport::Interface` through its constructor and stores it by reference rather than
 constructing or owning a concrete SPI implementation, and every register read and write passes
 through it. The UART logic therefore depends only on the transport interface, never on AVR registers
-or SPI-specific code, and the same `Uart` runs over the stub transport L08 scripts under it, over any
-fake or mock a test cares to write, and over the real AVR SPI transport introduced in L09. Nothing
-above the seam changes: the register protocol, the UART behaviour and the public `Interface`
+or SPI-specific code, and the same `Uart` runs over the stub transport L08 scripts under it, over
+any fake or mock a test cares to write, and over the real AVR SPI transport introduced in L09.
+Nothing above the seam changes: the register protocol, the UART behaviour and the public `Interface`
 implementation stay identical, and only the injected transport differs.
-
----
 
 ---
 

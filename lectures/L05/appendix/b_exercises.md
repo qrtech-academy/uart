@@ -10,8 +10,8 @@ module from its appendix and check it with the provided testbench, run from `hw/
 ---
 
 ## Exercise 1 - `uart_regs`
-**a)** Write your own `uart_regs.vhd` from [Appendix A](./a_uart_regs.md)'s specification and run its
-testbench:
+**a)** Write your own `uart_regs.vhd` from [Appendix A](./a_uart_regs.md)'s specification and run
+its testbench:
 
 ```bash
 cd hw
@@ -23,10 +23,10 @@ ghdl -r --std=93 uart_regs_tb --assert-level=error
 `uart_def.vhd` (the register map) and `fifo.vhd` come first because `uart_regs` reads the package
 and instantiates two FIFOs.
 
-**b)** Make `RX_DATA` pop the FIFO on read (advance `tail` whenever that index is read). Re-run. The
-"a bare `RX_DATA` read must not pop" check fails; explain, in terms of the SPI transport's abort
-rule, why a read with a side effect is a genuinely harder thing to get right than the pure read
-plus separate `RX_POP`.
+**b)** Make `RX_DATA` pop the FIFO on read (advance `tail` whenever that index is read). Re-run.
+Which check fails first, and why is it not the "a bare `RX_DATA` read must not pop" check? Does
+`uart_top_tb` notice? Then explain, in terms of the SPI transport's abort rule, why a read with a
+side effect is a genuinely harder thing to get right than the pure read plus separate `RX_POP`.
 
 **c)** `STATUS` is computed, not stored. Name the four things each of its bits is derived from, and
 say why none of them can simply be a stored register that the datapath writes.
@@ -38,8 +38,8 @@ provided SPI bridge to guarantee for that to be safe, and what would break if a 
 ---
 
 ## Exercise 2 - `uart_top`
-**a)** You built the `uart_top` skeleton in L01 and added `baud_gen`, `uart_tx`, `sync` and `uart_rx`
-across L02, L03 and L04, declaring each block's signals as you went. Now do it once more for
+**a)** You built the `uart_top` skeleton in L01 and added `baud_gen`, `uart_tx`, `sync` and
+`uart_rx` across L02 and L04, declaring each block's signals as you went. Now do it once more for
 `uart_regs`, the last block the top was waiting for. Three signals are new here:
 
 | Signal | Type | Driven by | Read by |
@@ -48,7 +48,7 @@ across L02, L03 and L04, declaring each block's signals as you went. Now do it o
 | `rx_full`  | `std_logic` | `uart_regs` | nothing, in this build |
 | `tx_pop`   | `std_logic` | the feeder below | `uart_regs` |
 
-Every other port below is a signal you already declared in L01, L02, L03 or L04 - which is the point
+Every other port below is a signal you already declared in L01, L02 or L04 - which is the point
 of having declared them where they were needed.
 
 ![Module `uart_regs`](./images/uart_regs.png)
@@ -83,8 +83,8 @@ uart_regs: entity work.uart_regs
 Delete the `reg_rdata <= (others => '0');` placeholder from L01 in the same edit: the bank drives
 that vector now, and leaving the placeholder in gives it two drivers.
 
-With `tx_empty` finally driven, the **TX feeder** can be written, the one piece of real logic the top
-has been waiting to hold. It is two concurrent statements:
+With `tx_empty` finally driven, the **TX feeder** can be written, the one piece of real logic the
+top has been waiting to hold. It is two concurrent statements:
 
 ```vhdl
 -- The TX feeder: load the transmitter whenever a byte is queued and the line is free, and pop
@@ -117,8 +117,8 @@ Everything the design contains appears on that line, in dependency order, includ
 the system testbench elaborates the whole peripheral for the first time.
 
 If `uart_top_tb` fails on the `BAUD_DIV` read-back with every `1` bit missing from the value you
-wrote, and the run is littered with `NUMERIC_STD.TO_INTEGER: metavalue detected` warnings, the L01
-placeholder is still there: each `'1'` the bank drives is resolving against its `'0'` to `'X'`.
+wrote (`got 0x0000` for the `0x0004` it wrote), the L01 placeholder is still there: each `'1'` the
+bank drives is resolving against its `'0'` to `'X'`, and `to_hex` prints an `'X'` as a zero.
 
 **b)** The provided `reset_sync` asserts asynchronously but releases synchronously. Explain what
 could go wrong if it released `reset_s2_n` asynchronously too (the moment `reset_n` rises), and why

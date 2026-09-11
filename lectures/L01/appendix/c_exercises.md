@@ -1,11 +1,11 @@
 # Appendix C
 
 ## Exercises
-Exercise 1 reinforces [Appendix A](./a_uart_def.md); Exercises 2 and 3 go with
-[Appendix B](./b_uart_top.md). `uart_def` is **provided** and only needs reading. `uart_top` is
-yours, and Exercise 2 is self-contained: everything needed to type `hw/uart_top.vhd`, from the entity
-down to the last internal signal, is below. Appendix B is where the reasoning behind it lives, and
-Exercise 3 asks for that reasoning back.
+Exercise 1 reinforces [Appendix A](./a_uart_def.md); Exercises 2 and 3 go with [Appendix
+B](./b_uart_top.md). `uart_def` is **provided** and only needs reading. `uart_top` is yours, and
+Exercise 2 is self-contained: everything needed to type `hw/uart_top.vhd`, from the entity down to
+the last internal signal, is below. Appendix B is where the reasoning behind it lives, and Exercise
+3 asks for that reasoning back.
 
 Neither module has a testbench of its own in L01. `uart_def` is a package of constants, and
 `uart_top`'s system testbench (`uart_top_tb`) stays skipped until its datapath exists in L05. So the
@@ -17,8 +17,8 @@ from `hw/` (see [`hw/README.md`](../../../hw/README.md) for the full flow and wh
 
 ## Exercise 1 - `uart_def`
 **a)** `uart_def.vhd` is provided. Read it against Appendix A, then, without looking, name the seven
-register indices and the `STATUS` / `CTRL` / `ERROR_FLAGS` bit positions. Analyze it so the names are
-in your `work` library for everything that follows:
+register indices and the `STATUS` / `CTRL` / `ERROR_FLAGS` bit positions. Analyze it so the names
+are in your `work` library for everything that follows:
 
 ```bash
 cd hw
@@ -28,14 +28,14 @@ ghdl -a --std=93 uart_def.vhd
 There is nothing to elaborate or run; a clean analysis means the package compiles and its names are
 available to every module that later writes `use work.uart_def.all`.
 
-**b)** These are bit **positions**, not masks: `ST_RX_VALID` is `1`, not `2`. Show how you would test
-the RX-valid bit of a status vector `status` using the constant, and contrast it with how the C++
-driver forms the same test (`1U << status::RX_VALID`). Why does storing positions keep both sides
-identical to the spec's "bit N" wording?
+**b)** These are bit **positions**, not masks: `ST_RX_VALID` is `1`, not `2`. Show how you would
+test the RX-valid bit of a status vector `status` using the constant, and contrast it with how the
+C++ driver forms the same test (`1U << status::RX_VALID`). Why does storing positions keep both
+sides identical to the spec's "bit N" wording?
 
 **c)** A teammate swaps two index values, setting `REG_RX_POP` to 6 and `REG_ERR_FLAGS` to 5.
-Nothing in L01 notices. At what point in the course, and in which testbench, would the swap first
-surface as a failure, and why not before?
+Nothing in L01 notices. At what point in the course would the swap first surface as a failure, and
+in which testbench, if any? Say why it does not surface before then.
 
 ---
 
@@ -65,11 +65,11 @@ top wires the register bus but never names a bit on it, and `uart_regs` (L05) is
 that does. Follow the provided files' house style, a banner comment listing the inputs and outputs,
 then `architecture behaviour of uart_top is`.
 
-**b) The internal signals.** Declare only the signals **this** lecture wires. The method matters more
-than the list: open the entity of every module you are about to instantiate, and for each port that
-does not connect straight to a `uart_top` port, declare a signal of the same type to carry it. In
-L01 that means `reset_sync`, `spi_slave` and `spi_reg_bridge`, and nothing else. Each later lecture
-adds its own signals the same way, when it adds the block that needs them.
+**b) The internal signals.** Declare only the signals **this** lecture wires. The method matters
+more than the list: open the entity of every module you are about to instantiate, and for each port
+that does not connect straight to a `uart_top` port, declare a signal of the same type to carry it.
+In L01 that means `reset_sync`, `spi_slave` and `spi_reg_bridge`, and nothing else. Each later
+lecture adds its own signals the same way, when it adds the block that needs them.
 
 Two naming conventions run through the whole design, and both are worth adopting now. Signals that
 carry SPI traffic between the two transport blocks take a **`spi_` prefix**. Signals that have been
@@ -86,20 +86,21 @@ expect `reset_s2_n` rather than `reset_n`.
 | `reg_addr`     | `std_logic_vector(3 downto 0)`  | `spi_reg_bridge` | `uart_regs` (L05) |
 | `reg_wdata`    | `std_logic_vector(31 downto 0)` | `spi_reg_bridge` | `uart_regs` (L05) |
 | `reg_write`    | `std_logic`                     | `spi_reg_bridge` | `uart_regs` (L05) |
-| `reg_rdata`    | `std_logic_vector(31 downto 0)` | zeros in e), then `uart_regs` (L05) | `spi_reg_bridge` |
+| `reg_rdata`    | `std_logic_vector(31 downto 0)` | zeros in d), then `uart_regs` (L05) | `spi_reg_bridge` |
 
 The four register-bus signals are here even though the block that answers on them is four lectures
 away, because `spi_reg_bridge` has ports for them and an instantiation must connect every port. That
-is the register bus existing with nothing behind it, which is the shape this lecture is really about.
+is the register bus existing with nothing behind it, which is the shape this lecture is really
+about.
 
 `reg_addr` is four bits, not three, even though there are only seven registers: the protocol's
 command byte reserves bits 3 to 0 for the index.
 
 **c) The reset synchronizer.** `reset_n` arrives from off-chip, so it must assert asynchronously and
-release synchronously, two flip flops later. That job is done by the provided `reset_sync`, which you
-instantiate rather than write; its two internal flops are its own business, so the only signal it
-adds to your top is `reset_s2_n`. Everything inside `uart_top` takes `reset_s2_n`, and nothing but
-this instance sees `reset_n` directly.
+release synchronously, two flip flops later. That job is done by the provided `reset_sync`, which
+you instantiate rather than write; its two internal flops are its own business, so the only signal
+it adds to your top is `reset_s2_n`. Everything inside `uart_top` takes `reset_s2_n`, and nothing
+but this instance sees `reset_n` directly.
 
 ![Module `reset_sync`](./images/reset_sync.png)
 
@@ -182,9 +183,9 @@ is never instantiated by `uart_top` at all; find it, and say why the build needs
 ## Exercise 3 - What a clean analysis does not prove
 `uart_top` analyzes, and almost nothing about it is proven. That gap is the lesson of L01.
 
-**a)** Swap two same-type ports in your entity, say `sclk` and `mosi`, and re-analyze. Does `ghdl -a`
-catch it? If not, at which point in the course does the mistake finally show up, and what does that
-tell you about the cost of a positional contract?
+**a)** Swap two same-type ports in your entity, say `sclk` and `mosi`, and re-analyze. Does `ghdl
+-a` catch it? If not, at which point in the course does the mistake finally show up, and what does
+that tell you about the cost of a positional contract?
 
 **b)** `reg_rdata` is tied to zeros and no register bank answers on the bus. What does an SPI read
 transaction return with that placeholder in place, and why is that harmless until L05? What would it

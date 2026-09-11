@@ -7,10 +7,9 @@ is that **two different serial links** run across it, for two different jobs, an
 the most common bring-up mistake.
 
 **The control plane is SPI.** The ATmega328P is the CPU, and it configures and drives the peripheral
-by reading and writing its registers over SPI, in the 5-byte transactions of
-[Part 3 of the spec](../../../protocol/uart_register_protocol.md). This is `AvrSpi` on one end and
-the provided `spi_slave` / `spi_reg_bridge` on the other, and it carries *register* traffic, not user
-data.
+by reading and writing its registers over SPI, in the 5-byte transactions of [Part 3 of the
+spec](../../../protocol/uart_register_protocol.md). This is `AvrSpi` on one end and the provided
+`spi_slave` / `spi_reg_bridge` on the other, and it carries *register* traffic, not user data.
 
 **The data plane is the UART itself.** The peripheral's own `tx`/`rx` pins carry bytes to and from
 the outside world, out to a USB-serial adapter and a PC terminal. This is the line the whole
@@ -34,8 +33,10 @@ The **data-plane UART needs no shifting** at all, because the DE0-CV's `tx`/`rx`
 and the USB-serial adapter is set to 3.3 V logic, so those two connect directly.
 
 Drive a 3.3 V FPGA input straight from a 5 V pin and, best case, it misbehaves; worst case, you
-damage the pin. This is exactly the failure the bring-up ladder's early rungs are designed to
-surface before it can do harm.
+damage the pin. The ladder's control-plane rung is where a crossed or unshifted SPI line first shows
+itself, but a rung can only report the damage, not prevent it: by the time any rung runs, the line
+has been powered. That is why the wiring is checked before power is applied
+([Appendix C](./c_bringup.md), Exercise 1).
 
 ---
 
@@ -60,12 +61,13 @@ test pyramid: it is the only level that exercises the actual chip boundary.
 
 The **bring-up ladder** climbs that gap one rung at a time, each rung proving something the last
 could not, so a failure points at one layer instead of the whole bench. **Data-plane pin loopback**
-bypasses your logic entirely and proves only the adapter, the levels, the terminal settings and the
-pin assignment. **The control plane** adds the SPI link, the level shifter, `AvrSpi` and the
-register bank, checked by writing `BAUD_DIV` and reading it back. **Peripheral loopback** adds the
-whole datapath, with `tx` tied to `rx` on the board so the byte never leaves the FPGA. **The real
-data plane** adds the outside world, and with it two independently generated baud rates that have to
-agree. And **EchoNode** adds the application on top.
+bypasses your logic entirely and proves only the adapter, the levels, the wiring and the pin
+assignment (not the terminal's baud rate: the adapter sends and receives at the same setting, so a
+loopback agrees with itself at any rate). **The control plane** adds the SPI link, the level
+shifter, `AvrSpi` and the register bank, checked by writing `BAUD_DIV` and reading it back.
+**Peripheral loopback** adds the whole datapath, with `tx` tied to `rx` on the board so the byte
+never leaves the FPGA. **The real data plane** adds the outside world, and with it two independently
+generated baud rates that have to agree. And **EchoNode** adds the application on top.
 
 The order is forced, not arbitrary. The peripheral cannot transmit until `BAUD_DIV` is written, and
 `BAUD_DIV` is only reachable over SPI, so the control plane has to be proven before anything that

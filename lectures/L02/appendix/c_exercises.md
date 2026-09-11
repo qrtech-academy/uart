@@ -122,10 +122,10 @@ a signal there instead of the `tx` pin analyzes cleanly, elaborates cleanly, and
 undriven - the loopback in `uart_top_tb` then feeds `'U'` back into `rx` and the system test fails
 three lectures later with nothing pointing at this line.
 
-Two signals need a word. `tx_byte` has no driver yet, because the FIFO that will fill it arrives
+Three signals need a word. `tx_byte` has no driver yet, because the FIFO that will fill it arrives
 with `uart_regs` in L05, and neither does `tx_load`, whose feeder you write in the same lecture: an
 undriven signal analyzes and elaborates without complaint, and the transmitter simply sits idle.
-`baud_div` is the other, and it needs the **guarded conversion** that turns the register bank's
+`baud_div` is the third, and it needs the **guarded conversion** that turns the register bank's
 vector into the `natural` `baud_gen` expects:
 
 ```vhdl
@@ -172,14 +172,19 @@ where the extra bits would be sent.
 
 **a)** Extend your `uart_tx` with two inputs, `parity_en` and `parity_odd`, and insert a parity bit
 between the last data bit and the stop bit. Even parity makes the total number of 1s (data plus
-parity) even; odd parity makes it odd. Widen your frame vector and index range to match.
+parity) even; odd parity makes it odd. Widen your frame vector and index range to match. Give each
+new input a default of `'0'` and declare it after the eight existing ports: `uart_tx_tb` and
+`uart_top` bind positionally, and a trailing input with a default may be left out of a positional
+map, so this is the one place the inputs-first convention gives way.
 
-**b)** Add a `two_stop` input that appends a second high stop bit. What is the only field of the
-frame whose length now varies, and what does that do to the total frame time at a fixed baud rate?
+**b)** Add a `two_stop` input, declared the same way, that appends a second high stop bit. Which
+field of the frame changes length with `two_stop`, and what does that do to the total frame time at
+a fixed baud rate?
 
 **c)** `uart_tx_tb` checks 8N1 only, so it will still pass with your additions as long as the new
-inputs default to off. Confirm that. Then describe, in words, the extra testbench case you would
-add to pin down even parity: what byte would you send, and what would you expect on the parity bit?
+inputs default to off and come after the existing ports. Confirm that. Then describe, in words, the
+extra testbench case you would add to pin down even parity: what byte would you send, and what would
+you expect on the parity bit?
 
 ---
 

@@ -134,8 +134,10 @@ packings put exactly the same ten levels on the line and the bench passes on bot
 choosing one of them turns a real check into a decoration. Exercise 2 makes you demonstrate it.
 
 Note what the bench does **not** check. `busy` and `done` are bound but never asserted on, so a
-`busy` that rises one cycle late still passes here. That bug surfaces only in L05, as a TX feeder
-that loads two bytes where it should have loaded one.
+`busy` that rises one cycle late still passes here. That bug has no effect until L05, where the TX
+feeder, still seeing `busy` low on the cycle after a load, pops a second byte that the transmitter,
+already sending, ignores. The byte is lost, and because `uart_top_tb` sends a single byte, not even
+the system testbench shows it.
 
 ---
 

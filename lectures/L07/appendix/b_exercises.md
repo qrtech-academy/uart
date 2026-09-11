@@ -21,12 +21,14 @@ source/
 ```
 
 The driver lives in the `driver::uart` namespace. These conventions apply to `include/` and
-`source/`, which have to cross-compile for the ATmega; `test/` and `include/arch/test/` are host-only
-and never reach avr-gcc, which is why the provided suites next to them use `<cstdint>`, `std::`,
-`namespace driver::uart::test` and `[[nodiscard]]` freely. Follow the same AVR-portable conventions
-as [L06](../../L06/appendix/b_exercises.md): `<stdint.h>` and bare `uint8_t` / `size_t` (no `std::`),
-nested namespace blocks (not `namespace driver::uart { ... }`), and no `[[nodiscard]]`. Build with
-`make build`.
+`source/`, which have to cross-compile for the ATmega; `test/` and `include/arch/test/` are
+host-only and never reach avr-gcc, which is why the provided suites next to them use `<cstdint>`,
+`std::`, `namespace driver::uart::test` and `[[nodiscard]]` freely. Follow the same AVR-portable
+conventions as [L06](../../L06/appendix/b_exercises.md): `<stdint.h>` and bare `uint8_t` / `size_t`
+(no `std::`), nested namespace blocks (not `namespace driver::uart { ... }`), and no
+`[[nodiscard]]`. `make build` has nothing to build yet, since it waits for the `source/main.cpp`
+that L08 provides, so check that the driver compiles by hand, from `fw/`: `g++ -std=c++17 -Wall
+-Wextra -Werror -Iinclude -fsyntax-only source/driver/uart/uart.cpp`.
 
 ---
 
@@ -51,11 +53,11 @@ spec](../../../protocol/uart_register_protocol.md).
 
 `readReg(index)` returns a register's 32-bit value. It begins the transaction with
 `myTransport.begin()`, then sends the command byte, which is the register index with the write bit
-clear (bit 7 = 0), using `myTransport.transfer(command)` and ignoring the byte that comes back, since
-the reply to the command byte is meaningless. It then clocks out the four data bytes by calling
-`myTransport.transfer(0x00)` four times, sending dummy zeros, and assembles the four returned bytes
-into the result **most significant byte first**, so the first byte back is bits 31-24. Finally it
-ends the transaction with `myTransport.end()` and returns the assembled value.
+clear (bit 7 = 0), using `myTransport.transfer(command)` and ignoring the byte that comes back,
+since the reply to the command byte is meaningless. It then clocks out the four data bytes by
+calling `myTransport.transfer(0x00)` four times, sending dummy zeros, and assembles the four
+returned bytes into the result **most significant byte first**, so the first byte back is bits
+31-24. Finally it ends the transaction with `myTransport.end()` and returns the assembled value.
 
 Every byte here moves through the injected `myTransport`, using `myTransport.transfer()`, the raw
 duplex SPI exchange. Do **not** call the driver's own `write()`: that is the public "send a UART
@@ -75,8 +77,8 @@ Most significant first, in both helpers, is the detail the byte-order test exist
 reversed value is a different value to the hardware.
 
 ### Reaching a non-const transport from a `const` method (`const_cast`)
-`readReg` is `const`, but the transport's `begin()` / `transfer()` / `end()` are **not**: driving SPI
-is an action with side effects, not an observation. So a `const` method that has to perform a
+`readReg` is `const`, but the transport's `begin()` / `transfer()` / `end()` are **not**: driving
+SPI is an action with side effects, not an observation. So a `const` method that has to perform a
 register read must reach a non-const operation, and this course writes that reach out explicitly:
 
 ```cpp
@@ -99,12 +101,12 @@ for when a logically-`const` method (an observer such as `status()`) has to invo
 operation underneath, and you have decided the method should stay `const` to its callers. It is a
 deliberate compromise, and worth understanding precisely.
 
-The alternatives are marking the method non-`const`, which is honest but then means `status()` cannot
-be `const`, or using a `mutable` member, which is right for a cache and awkward for a reference.
-`const_cast` keeps the public `const` promise while admitting that the implementation must drive
-something underneath. So why write a cast the compiler does not ask for? Because it makes the intent
-explicit at the one line where a `const` method starts driving hardware, and because it becomes
-genuinely *required* the moment the transport is held differently - by value, or behind a
+The alternatives are marking the method non-`const`, which is honest but then means `status()`
+cannot be `const`, or using a `mutable` member, which is right for a cache and awkward for a
+reference. `const_cast` keeps the public `const` promise while admitting that the implementation
+must drive something underneath. So why write a cast the compiler does not ask for? Because it makes
+the intent explicit at the one line where a `const` method starts driving hardware, and because it
+becomes genuinely *required* the moment the transport is held differently - by value, or behind a
 `const`-propagating handle - at which point the object's `const` does reach the member and the calls
 stop compiling. Writing it now makes that change a one-word edit rather than a redesign. Be clear
 which of the two you are relying on: here it is documentation, not necessity.
@@ -139,13 +141,11 @@ discards the front byte so the next call sees the next one.
 Because `RX_DATA` does not pop on its own, the `RX_POP` write is not optional. If you leave it out,
 whether by forgetting it or by assuming the read already advanced the FIFO, the front byte is never
 discarded, so every following `read` polls `RX_VALID`, finds it still set, re-reads `RX_DATA`, and
-returns the **same byte forever**. Popping *before* the read is the opposite mistake: it discards the
-current byte unread and skips data.
+returns the **same byte forever**. Popping *before* the read is the opposite mistake: it discards
+the current byte unread and skips data.
 
 The last three are one-liners. `status()` returns `readReg(STATUS)`, `errorFlags()` returns
 `readReg(ERROR_FLAGS)`, and `clearErrors()` calls `writeReg(ERROR_FLAGS, 0)`.
-
----
 
 ---
 

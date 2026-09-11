@@ -36,11 +36,11 @@ place.
 ### `env.cpp`, the runtime the compiler still expects
 avr-libc ships no C++ runtime, yet the compiler still emits references to a few runtime symbols for
 ordinary C++ constructs, and the link fails without them. The provided `avr/env.cpp` hand-defines
-three groups of them. `operator delete` is needed because a class with a virtual destructor names the
-deleting `operator delete` in its vtable, even if you never delete through a base pointer.
-`__cxa_pure_virtual()` is named by every abstract class' vtable, and is called only if a pure virtual
-is somehow invoked. And `__cxa_guard_acquire()`, `__cxa_guard_release()` and `__cxa_guard_abort()`
-form the guard around a function-local `static`'s one-time initialization.
+three groups of them. `operator delete` is needed because a class with a virtual destructor names
+the deleting `operator delete` in its vtable, even if you never delete through a base pointer.
+`__cxa_pure_virtual()` is named by every abstract class' vtable, and is called only if a pure
+virtual is somehow invoked. And `__cxa_guard_acquire()`, `__cxa_guard_release()` and
+`__cxa_guard_abort()` form the guard around a function-local `static`'s one-time initialization.
 
 This build passes `-fno-threadsafe-statics`, so avr-gcc never emits the `__cxa_guard_*` calls at
 all; `env.cpp` defines them anyway, so the link succeeds with or without the flag and on any
@@ -65,13 +65,19 @@ transport, needs `F_CPU`: the baud divider is computed from the clock.
 ---
 
 ### Building and flashing the MCU
-Two steps turn the source into something on the chip. First you **compile and link** with avr-gcc for
-`-mmcu=atmega328p`, then `avr-objcopy` the ELF into an Intel HEX image. Then you **flash** it with
-avrdude over the Nano's USB bootloader. Both are wrapped by the avr-gcc Makefile in `avr/`:
+Two steps turn the source into something on the chip. First you **compile and link** with avr-gcc
+for `-mmcu=atmega328p`, then `avr-objcopy` the ELF into an Intel HEX image. Then you **flash** it
+with avrdude over the Nano's USB bootloader. Both are wrapped by the avr-gcc Makefile in `avr/`:
 
 ```bash
 make -C fw/avr flash
 ```
+
+`F_CPU` must match the board's actual clock, 16 MHz on a standard Nano, set by its crystal, with the
+fuses selecting that external oscillator as the clock source, because it drives every computed
+timing, including the debug UART's baud. The `avr/` build is cross-compiled and flashed only; it is
+excluded from host CI, while the transport's *logic* is still checked on the host per
+[Appendix A](./a_avr_transport.md).
 
 ---
 
@@ -84,26 +90,27 @@ is *correct*; it says nothing about whether it **fits** on the device or **meets
 Only synthesis answers those, and the tool for the DE0-CV is **Quartus Prime Lite**.
 
 `uart_top` is not the top level on the board. It has no notion of which physical pin `sclk` or `tx`
-is, so it is wrapped by **`uart_board.vhd`**, the provided Quartus top level that maps its ports onto
-DE0-CV package pins and feeds it the board's 50 MHz clock. That wrapper is board I/O rather than
-peripheral logic, which is why it lives with the Quartus project instead of in `hw/`.
+is, so it is wrapped by **`uart_board.vhd`**, the provided Quartus top level that maps its ports
+onto DE0-CV package pins and feeds it the board's 50 MHz clock. That wrapper is board I/O rather
+than peripheral logic, which is why it lives with the Quartus project instead of in `hw/`.
 
 The flow is: open the project, add your `hw/*.vhd` alongside the wrapper, **compile**, then read the
 two numbers that matter. **Fit** tells you the design is small enough, which for this peripheral it
 comfortably is. **Timing** tells you every path from flip flop to flip flop settles inside one 20 ns
-clock period; a design that simulates perfectly can still fail here, and that failure is invisible to
-every testbench you have run. Then **program** the board over USB-Blaster.
+clock period; a design that simulates perfectly can still fail here, and that failure is invisible
+to every testbench you have run. Then **program** the board over USB-Blaster.
 
-To see it work with nothing else attached, jumper the peripheral's `tx` pin to its `rx` pin and let
-it echo itself. That is the same loopback `uart_top_tb` performs in simulation, running now on real
-silicon at a real 50 MHz, and it is the last thing the FPGA half needs before both chips meet on the
-bench in L10.
-
-`F_CPU` must match the board's actual clock (16 MHz on a standard Nano, set by its crystal, with the
-fuses selecting that external oscillator as the clock source), because
-it drives every computed timing, including the debug UART's baud. The `avr/` build is
-cross-compiled and flashed only; it is excluded from host CI, while the transport's *logic* is
-still checked on the host per [Appendix A](./a_avr_transport.md).
+What the board can show with nothing else attached is less than it may seem. `uart_top` has no path
+of its own from `rx` to `tx`: it transmits only what an SPI master writes to `TX_DATA`, and it holds
+what it receives in the RX FIFO until a master reads it, so with no Nano on the SPI pins `BAUD_DIV`
+reads zero and `tx` simply idles high. `uart_top_tb`'s loopback worked because the testbench was
+that master. What can be checked alone is the path around the peripheral: wire the wrapper's `rx`
+pin straight back out to its `tx` pin, bypassing `uart_top`, re-synthesize, and a terminal on the
+USB-serial adapter echoes what you type. That proves the programming, the pin assignment, the
+adapter and its logic levels (not the terminal's baud rate: the adapter sends and receives at the
+same setting, so a loopback agrees with itself at any rate), and it is the first rung of the
+bring-up ladder in L10; the peripheral itself is first exercised there, once the Nano writes
+`BAUD_DIV` and `TX_DATA` over SPI.
 
 ---
 

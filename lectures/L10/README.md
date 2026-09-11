@@ -62,11 +62,12 @@ The work is climbing the **bring-up ladder**, stopping at the first rung that mi
 adds exactly one layer, so the first rung that breaks names the culprit; the rungs are Appendix C's
 Exercise 3. Rung a is a **data-plane pin loopback**: the board wrapper wires its `rx` pin straight
 back to its `tx` pin, bypassing the peripheral, so a PC terminal echoes itself and only the adapter,
-the levels, the terminal settings and the pin assignment are on trial. Rung b brings up the
-**control plane**, writing `BAUD_DIV` over SPI and reading it back. Rung c is **peripheral
-loopback**, with `tx` tied to `rx` on the board so the driver can send a byte and read the same byte
-back without the outside world. Rung d is the **real data plane**, the same send and receive against
-the terminal. Rung e is **EchoNode**, the full application.
+the levels, the wiring and the pin assignment are on trial (not the terminal's baud rate: the
+adapter sends and receives at the same setting, so a loopback agrees with itself at any rate). Rung
+b brings up the **control plane**, writing `BAUD_DIV` over SPI and reading it back. Rung c is
+**peripheral loopback**, with `tx` tied to `rx` on the board so the driver can send a byte and read
+the same byte back without the outside world. Rung d is the **real data plane**, the same send and
+receive against the terminal. Rung e is **EchoNode**, the full application.
 
 The order is forced: the peripheral cannot transmit until `BAUD_DIV` is written, and `BAUD_DIV` is
 only reachable over SPI, so the control plane must be proven before any rung that uses the
@@ -78,10 +79,10 @@ already proven, so the only open questions are wiring and links. The session is 
 climbing the ladder rung by rung and stopping wherever it first misbehaves.
 
 ### After the Lecture
-Complete the closing exercise, [Appendix C, Exercise 4](./appendix/c_bringup.md): trace a single byte
-through every layer, from the PC terminal through the FPGA's UART RX, the FIFO, the register bank,
-the SPI bridge, `AvrSpi`, the driver and `EchoNode`, and back out again, naming each module and the
-lecture that built it.
+Complete the closing exercise, [Appendix C, Exercise 4](./appendix/c_bringup.md): trace a single
+byte through every layer, from the PC terminal through the FPGA's UART RX, the FIFO, the register
+bank, the SPI bridge, `AvrSpi`, the driver and `EchoNode`, and back out again, naming each module
+and the lecture that built it.
 
 ---
 
@@ -99,8 +100,9 @@ lecture that built it.
 ## Course Review
 The pattern you have just completed, a peripheral in VHDL, a driver in C++, one shared register
 contract, integrated across a real chip boundary, is the whole FPGA-meets-MCU method. The same
-method scales to far harder protocols, and the SPI transport this course handed you as a black box is
-itself built from the wire up two courses later, in SPI: The MCU-FPGA Transport, from the Wire Up.
+method scales to far harder protocols, and the SPI transport this course handed you as a black box
+is itself built from the wire up two courses later, in SPI: The MCU-FPGA Transport, from the Wire
+Up.
 
 ---
 

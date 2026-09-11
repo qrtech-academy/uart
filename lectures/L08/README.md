@@ -81,8 +81,8 @@ it.
   this stage, and what class of bug does that let you find first?
 * `injectRxWord` queues its four bytes least significant first by mistake. Which cases go red, and
   why does the failure point at `readReg()` rather than at the stub?
-* The suite counts `begin()` and `end()` calls in eight cases. What would be wrong with a driver
-  that passed every byte-sequence assertion but failed those counters?
+* The suite counts `begin()` calls in eight cases, and `end()` calls in two of them. What would be
+  wrong with a driver that passed every byte-sequence assertion but failed those counters?
 * Why do `writeBlocking` and `readBlocking` take `Interface&` rather than `Uart&`, and which class
   from L06 does that choice make usable in L10?
 

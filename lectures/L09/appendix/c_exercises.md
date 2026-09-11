@@ -39,9 +39,9 @@ Do not restate the protocol; the driver above already owns it.
 `transfer(byte)` writes `SPDR`, spins until `SPIF` is set, then returns `SPDR`. Explain, in one
 sentence, why the spin cannot be skipped.
 
-**c)** `SS` (PB2) is configured as an output even though the transport drives the chip select itself.
-What does the SPI peripheral do if `SS` is left an input and something pulls it low mid-transaction,
-and which `SPCR` bit changes?
+**c)** `SS` (PB2) is configured as an output even though the transport drives the chip select
+itself. What does the SPI peripheral do if `SS` is left an input and something pulls it low
+mid-transaction, and which `SPCR` bit changes?
 
 **d)** A colleague writes `return SPDR;` immediately after `SPDR = byte;`, with no poll. What byte
 comes back, and why? Tie your answer to the transfer waveform: how many `SCK` periods must pass
@@ -63,9 +63,9 @@ back. Cross-compile and flash it:
 make -C fw/avr flash
 ```
 
-**b)** Name one idiom from the host demo (`source/main.cpp`) that would **not** compile in this
-freestanding build, and say what replaces it on the AVR. (Consider the heap, exceptions, and
-iostreams.)
+**b)** The host demo (`source/main.cpp`) compiles unchanged in this freestanding build. Say why,
+then name the idioms of ordinary host C++ that would **not** compile here, and what replaces each on
+the AVR. (Consider `<cstdint>`, the heap, exceptions, RTTI, and iostreams.)
 
 **c)** Delete `env.cpp` from the link and rebuild. Which symbol does the linker report as undefined,
 which C++ construct in your code emitted the reference to it, and why does the host build not need
@@ -94,16 +94,20 @@ The Quartus flow is demonstrated in the session; this is where you run it yourse
 is already carrying your code when the bench session starts rather than on the day.
 
 **a)** Open the provided Quartus project, add your own `hw/*.vhd` alongside the provided
-`uart_board.vhd` wrapper, and compile. Record two numbers from the reports: how much of the Cyclone V
-the design uses, and the **worst-case slack** on the 50 MHz clock. Did it meet timing, and how do you
-know from the report rather than from the design working?
+`uart_board.vhd` wrapper, and compile. Record two numbers from the reports: how much of the Cyclone
+V the design uses, and the **worst-case slack** on the 50 MHz clock. Did it meet timing, and how do
+you know from the report rather than from the design working?
 
-**b)** Program the DE0-CV over USB-Blaster, then jumper the peripheral's `tx` pin to its `rx` pin and
-open a terminal at 115200 8N1 on the USB-serial adapter. Typing a character should echo it back. That
-is the loopback `uart_top_tb` ran in simulation, now on real silicon.
+**b)** Program the DE0-CV over USB-Blaster. Then build the wrapper once more with its `rx` pin wired
+straight to its `tx` pin, bypassing `uart_top`, program that, and open a terminal at 115200 8N1 on
+the USB-serial adapter: typing a character should echo it back. This is the only loopback the board
+can run on its own. Jumpering the peripheral's own `tx` to its `rx` shows nothing yet, because
+`uart_top` transmits only what an SPI master writes to `TX_DATA`; `uart_top_tb` could loop a byte
+through it only because the testbench was that master, and on the bench the Nano takes that role in
+L10.
 
-**c)** The loopback in (b) proves rather less than the simulation did, and rather more. Name one
-thing each establishes that the other cannot.
+**c)** The pin loopback in (b) proves rather less than the system testbench did, and rather more.
+Name one thing each establishes that the other cannot.
 
 ---
 

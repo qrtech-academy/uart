@@ -3,10 +3,11 @@
 ## What you are building
 
 ### The `app::EchoNode` application
-`EchoNode` is the application that finishes the course: it receives a byte over the UART and sends it
-straight back. On the bench, what you type in the terminal comes back to you, having crossed every
-layer the course built. The application itself is tiny, because all the hard work is already done and
-tested underneath it: the driver, the transport, the peripheral. `EchoNode` just spends that stack.
+`EchoNode` is the application that finishes the course: it receives a byte over the UART and sends
+it straight back. On the bench, what you type in the terminal comes back to you, having crossed
+every layer the course built. The application itself is tiny, because all the hard work is already
+done and tested underneath it: the driver, the transport, the peripheral. `EchoNode` just spends
+that stack.
 
 The important idea is that `EchoNode` is **software you write and host-test before you touch the
 bench**. It depends only on `driver::uart::Interface`, not on `Uart`, `AvrSpi`, or any hardware, so
@@ -22,16 +23,21 @@ was written in L06, as soon as the interface it implements existed.
 
 ### The application seam: `app::Interface`
 Applications sit behind their own interface, `app::Interface`, exactly as drivers sit behind
-`driver::uart::Interface`. It declares a single operation, `run(const bool& stop)`, which runs the
-application until `stop` becomes `true`. `main()` holds an `app::Interface&` and calls `run()`, so it
-neither knows nor cares which application it runs; swapping `EchoNode` for another is a one-line
-change in `main()`.
+`driver::uart::Interface`. It declares a single operation, `run(const volatile bool& stop)`, which
+runs the application until `stop` becomes `true`. `main()` holds an `app::Interface&` and calls
+`run()`, so it neither knows nor cares which application it runs; swapping `EchoNode` for another is
+a one-line change in `main()`.
 
-`stop` is a `const bool&`, a flag the application only *reads*, hence the `const`, owned by whoever
-started it. Setting it `true` asks the application to return from `run()`, which is a clean shutdown
-and, in a test, the way the loop is ended. It is a plain `bool` rather than a `std::atomic`, because
-avr-libc is freestanding and ships no `<atomic>`, and on the single-core ATmega a byte read is
-already indivisible.
+`stop` is a `const volatile bool&`, a flag the application only *reads*, hence the `const`, owned by
+whoever started it. Setting it `true` asks the application to return from `run()`, which is a clean
+shutdown and, in a test, the way the loop is ended. It is `volatile` because it is written outside
+the loop that reads it: by the UART stub in a test, and on a target by whatever else may set it, an
+interrupt handler for instance. `run()` never writes the flag, and where nothing the loop calls
+could write it either, as with an interrupt handler, the compiler may read it once, keep it in a
+register and never see it change; `volatile` makes every pass read it from memory. It is a
+`volatile bool` rather than a `std::atomic`, because avr-libc is freestanding and ships no
+`<atomic>`, and on the single-core ATmega a byte read is already indivisible: atomicity is not the
+problem here, visibility is.
 
 ---
 
@@ -43,23 +49,24 @@ is `final`, non-copyable, and non-movable.
 
 **Member variable.** There is one: `driver::uart::Interface& myUart`, the UART driver to echo over,
 injected through the constructor and held by reference. That reference is what lets the *same* class
-run over the concrete `Uart` on hardware and over the UART stub in a test, with no change. Because it
-is a reference it is set once at construction and never rebound, which is also why copy and move are
-deleted: a reference member cannot be reassigned, the same reason `Uart` deletes them.
+run over the concrete `Uart` on hardware and over the UART stub in a test, with no change. Because
+it is a reference it is set once at construction and never rebound, which is also why copy and move
+are deleted: a reference member cannot be reassigned, the same reason `Uart` deletes them.
 
 **Methods.** The constructor, `EchoNode(driver::uart::Interface& uart)`, is `explicit` and
 `noexcept`. It takes the driver to echo over and stores it in `myUart`, and it does no I/O, since
 construction only wires the dependency and therefore cannot fail.
 
-`run(const bool& stop)` is the application loop, `noexcept`, overriding `app::Interface::run()`. It
-repeats until `stop` is `true`, and on each pass it checks `stop`, asks `myUart` for a byte with the
-**non-blocking** `read()`, and, if one arrived, echoes it straight back with `writeBlocking()`.
+`run(const volatile bool& stop)` is the application loop, `noexcept`, overriding
+`app::Interface::run()`. It repeats until `stop` is `true`, and on each pass it checks `stop`, asks
+`myUart` for a byte with the **non-blocking** `read()`, and, if one arrived, echoes it straight back
+with `writeBlocking()`.
 
-The receive is a poll rather than `readBlocking()` on purpose. A blocking read would wait forever for
-a byte and never look at `stop` again, so the loop could not be stopped, and a test of it would hang.
-Polling `read()` returns to the top of the loop every pass to re-check `stop`, which is exactly what
-lets a caller, or the test, end it. The echo write may block, using `writeBlocking()`, because the
-byte is already in hand and simply has to go out.
+The receive is a poll rather than `readBlocking()` on purpose. A blocking read would wait forever
+for a byte and never look at `stop` again, so the loop could not be stopped, and a test of it would
+hang. Polling `read()` returns to the top of the loop every pass to re-check `stop`, which is
+exactly what lets a caller, or the test, end it. The echo write may block, using `writeBlocking()`,
+because the byte is already in hand and simply has to go out.
 
 ---
 
@@ -74,8 +81,8 @@ recorded TX equals what it queued, in order. The suite lives in `test/app/echo_n
 like the other host tests, may use full modern C++; run it with `make test`.
 
 That termination trick is also a check on your implementation: because it depends on `run()` polling
-`read()` and re-checking `stop`, a `run()` that blocked in `readBlocking()` would hang the test - the
-test telling you the loop is not actually stoppable.
+`read()` and re-checking `stop`, a `run()` that blocked in `readBlocking()` would hang the test -
+the test telling you the loop is not actually stoppable.
 
 ---
 
@@ -90,20 +97,21 @@ VHDL peripheral.
 ---
 
 ## Exercise 1 - `app::EchoNode`
-**a)** Write `include/app/interface.hpp` first - the `app::Interface` seam described above: a virtual
-`noexcept` destructor that is `= default`, and the single pure virtual `run(const bool& stop)
-noexcept`. Then write `include/app/echo_node.hpp` and `source/app/echo_node.cpp` from the description
-above, the `myUart` member, the constructor, `run(const bool& stop)`, and the deleted copy and move,
-so that `EchoNode` implements `app::Interface`. Run `make test` and confirm the echo test passes with
-no hardware.
+**a)** Write `include/app/interface.hpp` first - the `app::Interface` seam described above: a
+virtual `noexcept` destructor that is `= default`, and the single pure virtual `run(const volatile
+bool& stop) noexcept`. Then write `include/app/echo_node.hpp` and `source/app/echo_node.cpp` from
+the description above, the `myUart` member, the constructor, `run(const volatile bool& stop)`, and
+the deleted copy and move, so that `EchoNode` implements `app::Interface`. Run `make test` and
+confirm the echo test passes with no hardware.
 
 **b)** The test drives `run()` with the stub, which stops once its scripted RX is exhausted, queuing
 the bytes `0x00`, `0x41`, and `0xFF`. Add a case that queues **nothing** and confirm `run()` returns
 immediately, having sent nothing. Which implementation mistake is this the only case that catches?
 
-**c)** Method `run(const bool& stop)` is the unit under test, ended by the flag. Explain why `run()`
-must poll the non-blocking `read()` rather than call `readBlocking()`, and connect it to why `stop`
-is passed by reference (and read every pass) rather than returned or checked once.
+**c)** Method `run(const volatile bool& stop)` is the unit under test, ended by the flag. Explain
+why `run()` must poll the non-blocking `read()` rather than call `readBlocking()`, and connect it to
+why `stop` is passed by reference (and read every pass) rather than returned or checked once, and
+why it is `volatile`.
 
 **d)** Change `EchoNode` to echo each byte back **uppercased** (leave non-letters alone), and update
 the test. Keep the transformation inside `run()`; the point is that the application layer is exactly

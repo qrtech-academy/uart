@@ -84,25 +84,10 @@ advances in oversample periods rather than clock cycles.
               clear `frame`, and drop the byte.
             * Either way, return to `STATE_IDLE`.
     * Last on the tick, after the state machine has read it, `rx_prev` takes the current `rx_s2`.
-      Updating it last is what makes the comparison above "this tick against the previous one"
-      rather than a signal compared with itself.
-
-### Why idle waits for an edge, not a level
-Keeping one tick of history for `rx_s2` costs a single flip-flop, and leaving idle only on the
-high-to-low transition is what that flip-flop buys. Testing the level instead, "if `rx_s2` is low,
-start a frame", passes every frame `uart_rx_tb` sends and fails on the one case that matters.
-
-Consider a **break**: the line held low far longer than a frame, which is what a transmitter losing
-power or a cable coming loose looks like. With a level test the receiver re-arms the moment the
-previous frame's stop bit is judged, so it spends the break marching through back-to-back all-zero
-frames. Each of those ends on a low stop bit and is correctly rejected as a framing error, and that
-part is fine. The problem is the frame still in flight when the break *ends*: its stop bit is
-sampled after the line has returned high, so it is a well-formed frame as far as the receiver can
-tell, and a byte assembled out of nothing is pushed into the FIFO as real data.
-
-With an edge test there is no second falling edge until the line has gone high again, so no frame is
-ever in flight across that boundary. One flip-flop, and it is the difference between a receiver that
-works on clean data and one that survives a cable being unplugged.
+      Updating it on the tick is what makes the comparison above "this tick against the
+      previous one": a signal assignment takes effect only once the process has run, so wherever it
+      is written inside the tick the state machine sees the value from the previous tick, whereas
+      updating it on every clock would compare samples one clock apart and miss the edge.
 
 `sample_start_bit` is not part of that process at all. It is one concurrent line, high whenever the
 tick counter sits half a bit past the edge that restarted it:
@@ -146,6 +131,23 @@ Parity and overrun are deliberately absent here. Parity would be another mid-bit
 last data bit and the stop bit, gated by `CTRL`; overrun (a new byte arriving before the last was
 read) is not something the receiver can judge, because it does not know whether anyone has read the
 byte. That belongs to the register bank, where the RX FIFO's full flag answers it (L05).
+
+### Why idle waits for an edge, not a level
+Keeping one tick of history for `rx_s2` costs a single flip-flop, and leaving idle only on the
+high-to-low transition is what that flip-flop buys. Testing the level instead, "if `rx_s2` is low,
+start a frame", passes every frame `uart_rx_tb` sends and fails on the one case that matters.
+
+Consider a **break**: the line held low far longer than a frame, which is what a transmitter losing
+power or a cable coming loose looks like. With a level test the receiver re-arms the moment the
+previous frame's stop bit is judged, so it spends the break marching through back-to-back all-zero
+frames. Each of those ends on a low stop bit and is correctly rejected as a framing error, and that
+part is fine. The problem is the frame still in flight when the break *ends*: its stop bit is
+sampled after the line has returned high, so it is a well-formed frame as far as the receiver can
+tell, and a byte assembled out of nothing is pushed into the FIFO as real data.
+
+With an edge test there is no second falling edge until the line has gone high again, so no frame is
+ever in flight across that boundary. One flip-flop, and it is the difference between a receiver that
+works on clean data and one that survives a cable being unplugged.
 
 ---
 

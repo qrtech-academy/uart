@@ -60,23 +60,25 @@ With both programmed and the bench wired, you are ready to climb the ladder.
 Climb one rung at a time and **stop at the first that misbehaves**; that rung names the layer at
 fault (Appendix A explains why).
 
-**a) Data-plane pin loopback.** In `uart_board.vhd`, temporarily wire the board's UART receive pin
-straight back out to its transmit pin, bypassing `uart_top` altogether, and re-synthesize. Type in
-the PC terminal; every character should come straight back. None of your logic is in this path, and
-that is the point: it proves the USB-serial adapter, its 3.3 V logic levels, the terminal's baud and
-frame settings, the two data-plane wires, and the FPGA pin assignment, and it proves nothing else,
-because nothing else is in the circuit yet. Fix any problem here before going further, since every
-later rung depends on this one.
+**a) Data-plane pin loopback.** This is the loopback you already ran on the board alone in L09. In
+`uart_board.vhd`, temporarily wire the board's UART receive pin straight back out to its transmit
+pin, bypassing `uart_top` altogether, and re-synthesize. Type in the PC terminal; every character
+should come straight back. None of your logic is in this path, and that is the point: it proves the
+USB-serial adapter, its 3.3 V logic levels, the two data-plane wires, and the FPGA pin assignment,
+and it proves nothing else, because nothing else is in the circuit yet. Note what it cannot prove:
+the terminal's baud and frame settings. The adapter sends and receives at the same settings, so a
+loopback agrees with itself at any rate; they are first on trial in rung d. Fix any problem here
+before going further, since every later rung depends on this one.
 
 **b) The control plane.** Restore the wrapper. Flash a bring-up `main()` that does nothing but write
 `BAUD_DIV` over SPI and read it straight back, comparing the two values. A matching read-back is the
 first evidence that the whole control plane works: the level shifter on all four SPI lines,
 `AvrSpi`'s register setup, the provided `spi_slave` and `spi_reg_bridge`, and your register bank's
 read path. This rung has to come before any rung that uses the peripheral, because until `BAUD_DIV`
-is written the divider reads zero and `uart_top` substitutes 1, so the line runs at 50 MHz / 16 =
-3.125 Mbaud - transmitting, but at a rate nothing on the bench can decode - and the only route to a
-usable `BAUD_DIV` is SPI. A crossed, unshifted or floating SPI line surfaces here and nowhere
-earlier.
+is written the divider reads zero and `uart_top` substitutes 1, so a byte written to `TX_DATA` would
+leave at 50 MHz / 16 = 3.125 Mbaud - transmitted, but at a rate nothing on the bench can decode -
+and the only route to a usable `BAUD_DIV` is SPI. A crossed, unshifted or floating SPI line surfaces
+here and nowhere earlier.
 
 **c) The peripheral, looped back on itself.** Wire the peripheral's own `tx` to its own `rx` in the
 wrapper, exactly as `uart_top_tb` does in simulation, and re-synthesize. Have the bring-up `main()`
@@ -104,13 +106,15 @@ The closing exercise, and the course's summary. Take a single character typed in
 trace it through **every** layer, out and back, naming each module and the lecture that built it.
 
 It travels in on the data plane, from the PC terminal to the USB-serial adapter to the DE0-CV's `rx`
-pin, into `uart_rx` (L03), then the RX FIFO (`fifo`, L04) inside `uart_regs` (L05). It then crosses
-the control plane, out through `spi_reg_bridge` and `spi_slave` (provided) to `AvrSpi` (L09), up
-through `readReg` and `Uart` (L07), and into `EchoNode` (L10). Finally it goes back out, from
-`Uart::write()` to `writeReg()` to `AvrSpi`, into `uart_regs` and the TX FIFO, through `uart_tx`
-(L02) to the DE0-CV's `tx` pin, and back via the adapter to the terminal.
+pin, through `sync` into `uart_rx` (both L03), then the RX FIFO (`fifo`, L04) inside `uart_regs`
+(L05). It then crosses the control plane, out through `spi_reg_bridge` and `spi_slave` (provided) to
+`AvrSpi` (L09), up through `readReg` and `Uart` (L07), and into `EchoNode` (L10). Finally it goes
+back out, from `writeBlocking()` (L08) and `Uart::write()` to `writeReg()` to `AvrSpi`, back across
+`spi_slave` and `spi_reg_bridge` into `uart_regs` and the TX FIFO, through the TX feeder in
+`uart_top` (L05) and `uart_tx` (L02) to the DE0-CV's `tx` pin, and back via the adapter to the
+terminal.
 
-Name the one place the byte changes representation (a UART frame on the wire, a register field over
+Name each place the byte changes representation (a UART frame on the wire, a register field over
 SPI, a `uint8_t` in the driver), and you have described the whole FPGA-meets-MCU stack the course
 built.
 

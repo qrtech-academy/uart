@@ -54,7 +54,8 @@ ghdl -e --std=93 uart_rx_tb
 ghdl -r --std=93 uart_rx_tb --assert-level=error
 ```
 
-`uart_def.vhd` comes first because `uart_rx_tb` names bits through the package. `sync.vhd` is not on
+`uart_def.vhd` comes first because `uart_rx_tb` reads the package, for the `to_hex` in its failure
+messages. `sync.vhd` is not on
 that line at all: `uart_rx` reads `rx_s2`, the already-synchronized line, and instantiates nothing.
 The crossing belongs one level up, in `uart_top`, which is where
 [L04 Exercise 2](../../L04/appendix/b_exercises.md) puts it.

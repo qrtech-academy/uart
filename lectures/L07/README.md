@@ -53,14 +53,16 @@ promise the VHDL already keeps.
 We live-code the register core and then the driver over it:
 
 ```bash
-make build-cpp        # builds fw/; the suite still reports nothing to do
+cd fw
+g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only source/driver/uart/uart.cpp
 ```
 
-That message is expected and worth pausing on. The provided suite is guarded on four headers, and
-two of them - `driver/transport/stub.hpp` and `driver/uart/blocking.hpp` - are L08's, so it stays
-switched off for one more lecture. Until then the compiler is the only thing checking this code,
-which is exactly why the byte order and the three-access read path are reasoned through rather than
-guessed at.
+The compiler is run by hand, and that is expected and worth pausing on. `make build-cpp` has nothing
+to do for `fw/` yet: `make build` waits for the provided `source/main.cpp` that arrives in L08, and
+the provided suite is guarded on four headers, two of which - `driver/transport/stub.hpp` and
+`driver/uart/blocking.hpp` - are L08's, so it stays switched off for one more lecture. Until then
+the compiler is the only thing checking this code, which is exactly why the byte order and the
+three-access read path are reasoned through rather than guessed at.
 
 **The 60 minutes.** We type `readReg` and `writeReg`, which are the whole protocol in about sixty
 lines and the one place byte order can go wrong, and then `read()`, because the poll, read and

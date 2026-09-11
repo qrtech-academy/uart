@@ -45,13 +45,13 @@ count. Each pointer wraps around from `DEPTH-1` back to 0.
 
 On reset (`reset_s2_n` low), `head`, `tail` and `count` all go to 0, so the FIFO comes out of reset
 empty and not full; as everywhere else in this peripheral the reset is asserted asynchronously and
-tested ahead of `rising_edge(clock)`. The entries themselves need no clearing, since with
-`count = 0` nothing in the array is reachable and the first write lands on entry 0 anyway. What does
-matter is that the two pointers start *equal*, not merely at some known value: `empty` and `full`
-are read off `count`, so a `head` and `tail` that disagreed out of reset would keep the count
-honest while handing back a stale entry instead of the byte just pushed. `rdata` does show entry 0
-while the FIFO is empty, whatever that entry happens to hold, which is one more reason the caller
-watches `empty` rather than trusting `rdata`.
+tested ahead of `rising_edge(clock)`. The entries themselves need no clearing, since with `count =
+0` nothing in the array is reachable and the first write lands on entry 0 anyway. What does matter
+is that the two pointers start *equal*, not merely at some known value: `empty` and `full` are read
+off `count`, so a `head` and `tail` that disagreed out of reset would keep the count honest while
+handing back a stale entry instead of the byte just pushed. `rdata` still shows an entry while the
+FIFO is empty (entry 0 out of reset, a stale one after a drain), whatever that entry happens to
+hold, which is one more reason the caller watches `empty` rather than trusting `rdata`.
 
 On each rising edge, while not in reset, a **write** happens only if `wr = '1'` and the FIFO is not
 full, storing `wdata` at `head` and advancing `head`; a **read** happens only if `rd = '1'` and the
@@ -69,10 +69,10 @@ watch the flags.
 ### What the testbench pins down
 `fifo_tb` uses a depth-4 instance. It checks `empty` after reset and `full` after four pushes, then
 pushes a fifth entry while full and confirms it is dropped rather than stored over an existing one,
-and finally drains the FIFO and checks the four bytes come back in the order they went in, leaving it
-`empty` again. A last case raises `wr` and `rd` on the same edge with two entries queued: one entry
-in and one out, so the depth must not move, and the byte pushed alongside the pop must still be
-there after the next one. That is the case where a count adjusted in two independent branches
+and finally drains the FIFO and checks the four bytes come back in the order they went in, leaving
+it `empty` again. A last case raises `wr` and `rd` on the same edge with two entries queued: one
+entry in and one out, so the depth must not move, and the byte pushed alongside the pop must still
+be there after the next one. That is the case where a count adjusted in two independent branches
 quietly loses an entry.
 
 That is the whole contract: order preserved, and the flags honest at both ends.

@@ -63,11 +63,11 @@ separate feeder in `uart_top` (L01 Appendix B) drains the FIFO into the transmit
 
 **`RX_DATA` is a pure read; `RX_POP` is the advance.** Reading `RX_DATA` returns the FIFO's front
 byte and changes nothing, so it obeys the same latch-once rule as `STATUS`, and discarding that byte
-is a *separate* write to `RX_POP`. The split is deliberate. A read that also popped the FIFO would be
-a read with a side effect, and it would need the same commit-on-completion, abort-safe handling as a
-write: what should happen if the SPI transaction is aborted mid-read? Keeping the read pure and the
-pop an explicit write sidesteps the question entirely, and it is the single most important idea in
-this module.
+is a *separate* write to `RX_POP`. The split is deliberate. A read that also popped the FIFO would
+be a read with a side effect, and it would need the same commit-on-completion, abort-safe handling
+as a write: what should happen if the SPI transaction is aborted mid-read? Keeping the read pure and
+the pop an explicit write sidesteps the question entirely, and it is the single most important idea
+in this module.
 
 **`ERROR_FLAGS` latches.** A `frame_err` pulse from the receiver sets the framing bit, and it stays
 set until software writes `0` to clear it. `STATUS` bit 2 is just the OR of these flags.
@@ -79,9 +79,11 @@ set until software writes `0` to clear it. `STATUS` bit 2 is just the OR of thes
 nothing**. Look at the port list above and you will not find a `ctrl` output, so there is no path
 by which `CT_ENABLE`, the parity select, the stop-bit select or the two IRQ masks could reach the
 datapath. They are stored, they read back, and nothing acts on them. Do **not** gate your TX push
-or your receiver on `CT_ENABLE`: `uart_regs_tb` never writes `CTRL`, and neither does the system
-testbench `uart_top_tb`, so a bank that waits to be enabled will simply never transmit and will
-fail with a timeout that says nothing about the cause. The bits exist in `uart_def` because the
+or your receiver on `CT_ENABLE`: `uart_regs_tb` writes `CTRL` only in its last case, long
+after its transmit case, and the system testbench `uart_top_tb` never writes it at all, so a bank
+that waits to be enabled simply never transmits, and fails with messages that say nothing about the
+cause: `TX FIFO front should be 0x5A, got 0x00!` in the one, a timeout waiting for RX valid in the
+other. The bits exist in `uart_def` because the
 register map is the shared contract with the C++ side and with the protocol spec; wiring them to
 something real is a natural extension, not part of the build here.
 
@@ -218,8 +220,8 @@ Four things that shape holds down:
   in `hw/spi_reg_bridge.vhd`, and is worth reading as the pattern.
 
 Because that path is combinational, `reg_rdata` follows `reg_addr` within the cycle. Nothing
-registers it on the way out: the bridge latches the word once, at the start of its transaction, and
-`uart_regs_tb` allows a settling delta (`SETTLE_NS`) before it samples.
+registers it on the way out: the bridge latches the word once, just after the command byte, and
+`uart_regs_tb` allows it a nanosecond (`SETTLE_NS`) to settle before it samples.
 
 **The clocked process** is `process(clock, reset_s2_n)`, asserted-asynchronously reset like every
 other module here, and it is the only *clocked* process in the file - the read mux above is the
@@ -262,8 +264,8 @@ other one, and it has no clock at all:
   the FIFO, and an `RX_POP` on an empty RX FIFO does nothing, both because L04 guarded them on `not
   full` and `not empty`. The bank adds no guards of its own; `STATUS` is what the driver is supposed
   to poll first.
-* **Nothing is gated on `CT_ENABLE`.** As above: no testbench ever writes `CTRL`, so a bank that
-  waits to be enabled never transmits.
+* **Nothing is gated on `CT_ENABLE`.** As above: no testbench writes `CTRL` before it transmits, so
+  a bank that waits to be enabled never transmits.
 
 Two things are deliberately absent. `ER_PARITY` and `ER_OVERRUN` have no producer in this build, so
 they hold whatever a write last left in them, which is zero; `rx_full` is exported precisely so that
@@ -275,12 +277,12 @@ transmitter takes a byte.
 
 ### What the testbench pins down
 `uart_regs_tb` works entirely over the register bus. It checks that `BAUD_DIV` writes and reads back
-and drives `baud_div`, and that `STATUS` after reset shows TX-ready and TX-idle set with RX-valid and
-Error clear. On the transmit side, a `TX_DATA` write must appear at the FIFO front and clear TX-idle,
-and a `tx_pop` must empty it again. On the receive side, an `rx_push` must set RX-valid, `RX_DATA`
-must return the byte, a bare `RX_DATA` read must **not** pop, and an `RX_POP` write must clear
-RX-valid. Finally, a `frame_err` must latch into `ERROR_FLAGS` and `STATUS`, and a write of `0`
-must clear it. Two checks close the map off: a `CTRL` write of all ones must read back as
+and drives `baud_div`, and that `STATUS` after reset shows TX-ready and TX-idle set with RX-valid
+and Error clear. On the transmit side, a `TX_DATA` write must appear at the FIFO front and clear
+TX-idle, and a `tx_pop` must empty it again. On the receive side, an `rx_push` must set RX-valid,
+`RX_DATA` must return the byte, a bare `RX_DATA` read must **not** pop, and an `RX_POP` write must
+clear RX-valid. Finally, a `frame_err` must latch into `ERROR_FLAGS` and `STATUS`, and a write of
+`0` must clear it. Two checks close the map off: a `CTRL` write of all ones must read back as
 `0x0000003F`, proving the six defined bits are stored and the reserved ones above them are not, and
 a write to reserved index 7 must be ignored with the read returning zero.
 
@@ -290,9 +292,9 @@ would clear on a plain read.
 ---
 
 ### Where it fits
-`uart_regs` is the middle of `uart_top` (L01 Appendix B): the bridge on one side driving the register
-bus, the datapath (`baud_gen`, `uart_tx`, `uart_rx`) on the other. Its two FIFOs are the buffers
-that let software and the serial line run at their own speeds.
+`uart_regs` is the middle of `uart_top` (L01 Appendix B): the bridge on one side driving the
+register bus, the datapath (`baud_gen`, `uart_tx`, `uart_rx`) on the other. Its two FIFOs are the
+buffers that let software and the serial line run at their own speeds.
 
 ---
 

@@ -21,17 +21,17 @@ wire, scripted.
 
 The stub is a concrete `driver::transport::Interface`. The class is named `driver::transport::Stub`,
 it publicly inherits the interface so a `Uart` accepts it wherever the seam is expected, and it
-overrides the three seam methods, `begin()`, `transfer()` and `end()`. It is injected into the `Uart`
-through the constructor, exactly like the real transport in L09. It lives in
+overrides the three seam methods, `begin()`, `transfer()` and `end()`. It is injected into the
+`Uart` through the constructor, exactly like the real transport in L09. It lives in
 `include/driver/transport/stub.hpp`, beside the interface it implements, so that the host demo in
 `source/main.cpp` can drive the driver with no hardware too.
 
-On the `MOSI` side it records what the driver sends. Every byte passed to `transfer()` is appended to
-a log the test can read back, and that log is the exact sequence of bytes the driver put on the wire,
-so a test asserts against it to check the 5-byte transaction, the command byte and the byte order.
-Counting `begin()` and `end()` calls is part of the contract the provided suite asserts on, in eight
-of its cases, since that is what confirms each transaction was framed exactly once and that the two
-stay balanced.
+On the `MOSI` side it records what the driver sends. Every byte passed to `transfer()` is appended
+to a log the test can read back, and that log is the exact sequence of bytes the driver put on the
+wire, so a test asserts against it to check the 5-byte transaction, the command byte and the byte
+order. Counting `begin()` and `end()` calls is part of the contract the provided suite asserts on:
+it checks `beginCalls()` in eight of its cases, which confirms each transaction was framed exactly
+once, and `endCalls()` in two, which confirms the two stay balanced.
 
 On the `MISO` side it plays back what the driver reads. The test loads a queue of bytes before the
 driver runs, each `transfer()` call returns the next byte from that queue, and once the queue is
@@ -68,9 +68,10 @@ which would otherwise only surface on the bench.
 The suite is all-or-nothing by design: it is guarded on all four headers existing, so it reports
 nothing to do until `register_map.hpp`, `uart.hpp`, `stub.hpp` and `blocking.hpp` are all present.
 The first four cases check the *stub*, before any driver case runs, and they are the ones to get
-green first. Every `Uart` case reads what the stub was scripted to reply, so a stub bug surfaces as a
-driver failure: queue a register value least significant first and the suite reports
-`Uart.WriteWhenReadyPushesTxData` red, pointing at L07's `readReg()`, which is correct and unhelpful.
+green first. Every `Uart` case reads what the stub was scripted to reply, so a stub bug surfaces as
+a driver failure: queue a register value least significant first and the suite reports
+`Uart.WriteWhenReadyPushesTxData` red, pointing at L07's `readReg()`, which is correct and
+unhelpful.
 
 ---
 

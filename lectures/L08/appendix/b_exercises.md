@@ -58,12 +58,13 @@ Get the `TransportStub` cases green first and the failures below are genuinely y
 
 It must **record** every call. Append each byte passed to `transfer()` to a fixed-size `uint8_t`
 buffer with a running length, where a capacity of 100 bytes is plenty for these tests. Expose that
-record through `txLen()`, returning the number of bytes captured, and `txByte(index)`, returning
-the byte at a position and `0` for an index past the end. Both must be **`const`**, because the
-tests inspect the stub through a `const transport::Stub&`. Keep two `uint16_t` counters as well,
-one bumped by `begin()` and one by `end()`, exposed as `beginCalls()` and `endCalls()`, also
-`const`. These are not optional: the suite asserts on them in eight separate cases, because they
-are what proves a transaction was framed exactly once and that the two stay balanced.
+record through `txLen()`, returning the number of bytes captured, and `txByte(index)`, returning the
+byte at a position and `0` for an index past the end. Both must be **`const`**, because the tests
+inspect the stub through a `const transport::Stub&`. Keep two `uint16_t` counters as well, one
+bumped by `begin()` and one by `end()`, exposed as `beginCalls()` and `endCalls()`, also `const`.
+These are not optional: the suite asserts on `beginCalls()` in eight separate cases and on
+`endCalls()` in two, because they are what proves a transaction was framed exactly once and that the
+two stay balanced.
 
 It must **play back** bytes on `transfer()`, returning the next byte from a preloaded response
 buffer tracked by an index, and returning `0x00` once that buffer is exhausted. This is the `MISO`
@@ -80,16 +81,14 @@ converts equally well to `uint8_t` and to `uint32_t`, so an overload pair would 
 Two names cost nothing and keep the call sites readable, which is why the L06 UART stub is built the
 same way.
 
-Two fixed `uint8_t` buffers with a length each, one for what the driver sent and one for the scripted
-replies, are all it takes; no dynamic containers are needed. Both are **linear buffers, not FIFOs**:
-the record buffer is a write-only append log the test reads back afterward, and the reply buffer is
-read front-to-back through an advancing index. No circular wraparound, no pop-with-shift; just reset
-each length, and the read index, to zero at the start of a test.
+Two fixed `uint8_t` buffers with a length each, one for what the driver sent and one for the
+scripted replies, are all it takes; no dynamic containers are needed. Both are **linear buffers, not
+FIFOs**: the record buffer is a write-only append log the test reads back afterward, and the reply
+buffer is read front-to-back through an advancing index. No circular wraparound, no pop-with-shift;
+just reset each length, and the read index, to zero at the start of a test.
 
 Keep it dependency-injected: a test constructs a `Stub`, constructs a `Uart` over it, drives the
 driver, and then asserts against the `Stub`'s record.
-
----
 
 ---
 
@@ -110,10 +109,10 @@ defined in a header and that avoids a one-definition-rule violation once more th
 it, and mark it `noexcept`.
 
 ### b) Read a byte, blocking
-Add a free function `readBlocking()` that receives one byte, waiting until one is available. It takes
-a `driver::uart::Interface&`, the driver, and a reference to a `uint8_t` where the received byte is
-stored; it spins on `uart.read(byte)` until that returns `true` and then returns nothing. It is
-`inline` and `noexcept` for the same reasons.
+Add a free function `readBlocking()` that receives one byte, waiting until one is available. It
+takes a `driver::uart::Interface&`, the driver, and a reference to a `uint8_t` where the received
+byte is stored; it spins on `uart.read(byte)` until that returns `true` and then returns nothing. It
+is `inline` and `noexcept` for the same reasons.
 
 Each is a one-line spin loop, so header-only `inline` functions are all you need; no `.cpp`. They
 belong above the driver, not inside it: the core stays deterministic and testable, and the spinning
@@ -185,13 +184,13 @@ int main()
 It shows the API end to end: it constructs a `Uart` over a `driver::transport::Stub`, `configure()`s
 it, then uses your `writeBlocking` / `readBlocking` to send a byte and receive one back. Because the
 blocking calls spin until the transport reports ready, the demo scripts the stub just before each
-call so it completes instead of spinning forever; on the target in L09 the real AVR SPI transport
-reports actual hardware status, so the same `main` runs unchanged with no scripting.
+call so it completes instead of spinning forever. On the target there is nothing to script: L09
+writes a separate freestanding `main` in `fw/avr/` that builds the same `Uart` over `AvrSpi`, and
+the real transport reports the actual hardware status.
 
 Read it, then `make build` and run `./uart_firmware`: it exits cleanly once your `Uart`, `Stub`, and
-blocking helpers are correct. The demo is illustration, not a test; the real checking is `make test`.
-
----
+blocking helpers are correct. The demo is illustration, not a test; the real checking is `make
+test`.
 
 ---
 

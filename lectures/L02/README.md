@@ -28,11 +28,11 @@ After this lecture, participants should be able to:
 ---
 
 ## Prerequisites
-This lecture follows on from L01, where `uart_def` and the `uart_top` skeleton were built; `baud_gen`
-and `uart_tx` are the first two blocks you instantiate into that top. From Digital Design with VHDL
-it assumes `entity` and `architecture`, clocked processes, state machines, and running a provided
-self-checking testbench with GHDL. Before the lecture, read the **UART Line Protocol** section of the
-[protocol spec](../../protocol/uart_register_protocol.md).
+This lecture follows on from L01, where `uart_def` and the `uart_top` skeleton were built;
+`baud_gen` and `uart_tx` are the first two blocks you instantiate into that top. From Digital Design
+with VHDL it assumes `entity` and `architecture`, clocked processes, state machines, and running a
+provided self-checking testbench with GHDL. Before the lecture, read the **UART Line Protocol**
+section of the [protocol spec](../../protocol/uart_register_protocol.md).
 
 ---
 
@@ -42,9 +42,9 @@ self-checking testbench with GHDL. Before the lecture, read the **UART Line Prot
 Read [Appendix A](./appendix/a_baud_gen.md) for `baud_gen` and [Appendix B](./appendix/b_uart_tx.md)
 for `uart_tx`; these are the specifications you build the two modules from. Then read the provided
 testbenches, [`baud_gen_tb.vhd`](../../hw/baud_gen_tb.vhd) and
-[`uart_tx_tb.vhd`](../../hw/uart_tx_tb.vhd), which are the executable form of this lecture's contract
-and whose case comments each state what a failure means. Confirm your GHDL install beforehand by
-running an existing testbench from Digital Design with VHDL.
+[`uart_tx_tb.vhd`](../../hw/uart_tx_tb.vhd), which are the executable form of this lecture's
+contract and whose case comments each state what a failure means. Confirm your GHDL install
+beforehand by running an existing testbench from Digital Design with VHDL.
 
 ### During the Lecture
 We live-code `baud_gen.vhd`, the divider and its enable tick, then the core of `uart_tx.vhd`, the
@@ -76,8 +76,8 @@ second stop bit.
 * Why is the line idle-high, and what does a receiver detect to know a frame has started?
 * A byte is sent at 115200 baud with the 50 MHz clock: how many system cycles long is one bit, and
   what `BAUD_DIV` produces it?
-* If `done` is asserted one cycle too early, which frame bit gets corrupted when the next byte is
-  loaded, and why?
+* If `busy` rises one cycle late, what does the TX feeder of L05 do on that cycle, and what
+  happens to the byte it acts on?
 
 ---
 

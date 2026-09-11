@@ -15,8 +15,8 @@ byte order) already lives in the driver above it.
 
 ### The SPI registers
 The ATmega328P's SPI is three `volatile` memory-mapped registers. This is the `volatile` lesson from
-Modern Embedded C++, now on the master side of the wire: the compiler must not cache or reorder these
-accesses, because each one is a real bus event.
+Modern Embedded C++, now on the master side of the wire: the compiler must not cache or reorder
+these accesses, because each one is a real bus event.
 
 | Register | Bit | Meaning |
 |---|---|---|
@@ -100,13 +100,14 @@ proxy objects, so that reading them has an effect the way it does on the part. I
 written to `SPDR` as a `MOSI` log and returns a scripted byte on each `SPDR` read from a `MISO`
 queue, and it models the one property that matters here: a transfer takes time. Writing `SPDR`
 starts it, `SPIF` stays **clear**, and only a read of `SPSR` - the driver's own poll - completes the
-transfer and makes the received byte readable. Delete the poll and `transfer()` hands back the
-*previous* byte, and the suite goes red. It is the direct counterpart of the `Stub`.
+transfer and makes the received byte readable. Delete the poll and `transfer()` hands back a
+stale byte (on the mock, the value left from reset, since without the poll no transfer ever
+completes), and the suite goes red. It is the direct counterpart of the `Stub`.
 
-With that mock, a provided host suite pins the register-level behaviour the bench cannot easily show:
-the master configuration bits, the chip-select framing (`begin` low, `end` high), the `SPIF` poll,
-and that `transfer` returns the byte the mock presented, in order. Only the register file needs
-mocking; the transport uses no interrupts and no `F_CPU`-derived timing, so neither
+With that mock, a provided host suite pins the register-level behaviour the bench cannot easily
+show: the master configuration bits, the chip-select framing (`begin` low, `end` high), the `SPIF`
+poll, and that `transfer` returns the byte the mock presented, in order. Only the register file
+needs mocking; the transport uses no interrupts and no `F_CPU`-derived timing, so neither
 `<avr/interrupt.h>` nor `F_CPU` come into it. The whole transport is then proven end to end on the
 bench in L10.
 
