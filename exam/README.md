@@ -60,8 +60,8 @@ main sitting and a resit, or in alternate years.
 **Paper A leans towards reading and tracing.** Most of its questions hand you something - a `STATUS`
 word, a listing, a recorded byte log, a bench result - and ask what it means: decode a status read
 and say what the driver does next, trace a byte through the transmitter's frame vector, work out how
-much baud mismatch the receiver's real sampling phase leaves, read five SPI transactions off a stub's
-record and name the driver call that produced each.
+much baud mismatch the receiver's real sampling phase leaves, read five SPI transactions off a
+stub's record and name the driver call that produced each.
 
 Five of its parts do ask for code, so that "leans towards" does not mean "never writes any", and
 they are chosen so that **no module is written on both papers**: `fifo`'s clocked process and flags,
@@ -126,10 +126,10 @@ Both papers state these in their own rubric, so a candidate never has to have re
 
 ### Supplied in each paper
 
-Each paper supplies the clock rates, the `BAUD_DIV` formula, and the SPI command-byte layout. It does
-**not** supply the register map: Question 1 of both papers asks for part of it, so it cannot be
-printed on the front page. Later questions consume it, which is what the follow-through rule below
-is for.
+Each paper supplies the clock rates, the `BAUD_DIV` formula, and the SPI command-byte layout. It
+does **not** supply the register map: Question 1 of Paper A and Question 5 of Paper B ask for part
+of it, so it cannot be printed on the front page. Later questions consume it, which is what the
+follow-through rule below is for.
 
 ---
 

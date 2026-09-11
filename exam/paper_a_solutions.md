@@ -61,7 +61,7 @@ where the architecture's positional `port map` into `spi_slave` now hands the SP
 
 **Where it surfaces.** The first check anywhere in the course that fails is **`uart_top_tb`, at the
 end of L05** - the first time the system testbench runs at all. Before that it is *skipped*, not
-passed: its datapath blocks do not exist. So a wiring mistake made in L01 sits undetected for three
+passed: its datapath blocks do not exist. So a wiring mistake made in L01 sits undetected for four
 lectures and then arrives as an SPI transaction that produces nothing.
 *(1 mark)*
 
@@ -83,10 +83,10 @@ observation that it is impractical for a bus of `std_logic` pins.
 
 #### (i) 2 marks
 
-**The mechanism is driver resolution.** `std_logic` is a *resolved* type: a signal with more than one
-driver takes the value its resolution function computes from all of them, bit by bit. The placeholder
-is a concurrent assignment and therefore a driver; `uart_regs`' `reg_rdata` output is a second one.
-Resolving `'1'` against `'0'` gives `'X'`; resolving `'0'` against `'0'` gives `'0'`.
+**The mechanism is driver resolution.** `std_logic` is a *resolved* type: a signal with more than
+one driver takes the value its resolution function computes from all of them, bit by bit. The
+placeholder is a concurrent assignment and therefore a driver; `uart_regs`' `reg_rdata` output is a
+second one. Resolving `'1'` against `'0'` gives `'X'`; resolving `'0'` against `'0'` gives `'0'`.
 
 For a read-back of `0x00000004`, the low four bits carry:
 
@@ -229,9 +229,10 @@ own tick counter there. So the error does not accumulate across a stream of byte
 ten bit periods of a single frame.
 
 The condition is therefore specific: the **stop-bit sample must still land inside the stop bit**,
-nine bit periods after the edge that started the frame. That is the last and worst-placed sample in
-the frame, so it is the one that decides. Question 3 puts the budget at roughly plus or minus five
-percent combined for an ideally centred sample; 0.47% at this end leaves the peer almost all of it.
+nine and a half bit periods after the edge that started the frame. That is the last and worst-placed
+sample in the frame, so it is the one that decides. Question 3 puts the budget at roughly plus or
+minus five percent combined for an ideally centred sample; 0.47% at this end leaves the peer almost
+all of it.
 
 An answer that says only "it resynchronizes each frame" earns half; the mark is for naming the stop
 bit as the condition.
@@ -251,24 +252,31 @@ increments to 15, tick 16 finds `ticks = 15`, satisfies `ticks >= MAX_TICKS - 1`
 
 The **first** of those sixteen ticks arrives between 1 and `div` clocks after entry, because the
 divider's counter was already partway through a window. Every tick after it is exactly `div` clocks
-apart. So, for `k` in `1 .. div`:
+apart. One clock more follows: `tx <= frame(bit_idx)` reads `bit_idx` before the edge that
+advances it, so the line changes to data bit 0 one clock after the sixteenth tick. So, for `k` in
+`1 .. div`:
 
 ```text
-start bit length = k + 15 x div  clocks
-                 = 15 x div + 1   at shortest
-                 = 16 x div       at longest
+start bit length = k + 15 x div + 1  clocks
+                 = 15 x div + 2       at shortest
+                 = 16 x div + 1       at longest
 ```
 
 *(1 mark)*
 
-A nominal bit is `16 x div` clocks, so the worst case is `div - 1` clocks short: just under one tick
-period, that is just under **one sixteenth of a bit**.
+A nominal bit is `16 x div` clocks, so the start bit is at worst `div - 2` clocks short, or one
+clock long: under one tick period either way, that is under **one sixteenth of a bit**. The spread
+of `div - 1` clocks is the phase of `baud_gen`'s counter when `start` arrives. Simulated at
+`div = 4`, the start bit measures 62 to 65 clocks and every data bit exactly 64. Accept
+`15 x div + 1` to `16 x div` from a candidate who misses the one-clock lag but explains the tick
+phase; the variation is the point.
 
 **Why nothing else inherits it.** *(1 mark)*
 
-`ticks` is cleared *on* the tick that ends the bit, and that tick is itself a tick boundary. So every
-bit after the first begins on a tick and lasts exactly sixteen tick periods. The error is confined
-to the start bit and does not accumulate down the frame.
+`ticks` is cleared *on* the tick that ends the bit, and that tick is itself a tick boundary. So
+every bit after the first begins on a tick (one clock after it, the same lag every time) and lasts
+exactly sixteen tick periods. The error is confined to the start bit and does not accumulate down
+the frame.
 
 And the receiver does not care: it triggers on the falling edge that opens the start bit and samples
 the start bit half a bit later. A start bit up to one sixteenth short is still comfortably low at
@@ -295,7 +303,7 @@ orderings.
 **How many bytes share it.** A palindrome is determined entirely by its top four bits - `b7` fixes
 `b0`, `b6` fixes `b1`, `b5` fixes `b2`, `b4` fixes `b3` - so there are `2^4 =` **16** of them out of
 256. Pick a byte at random and you have a 15-in-16 chance of catching the bug; the earlier bench had
-     picked one of the 16. *(1 mark)*
+picked one of the 16. *(1 mark)*
 
 **The constant the bench uses today.** `0x53 = 0101 0011`, and its reverse is `0xCA`:
 
@@ -453,12 +461,14 @@ from 5.26% to 2.56%, a little under half. The other side gains: a transmitter ru
 7.69% instead of 5.26%, which is no use to anybody, because a real link is limited by its worst
 direction.
 
-**When it bites.** *(1 mark)* A peer that runs fast. This is not hypothetical: both ends round their
-own integer divider, and this peripheral at 115200 with `BAUD_DIV = 27` is itself **+0.47% fast**. Two
-ends that both round up eat the small budget from both sides at once, and it is the smaller budget
-that is left. The margin is still ample for a well-configured link - the point is that the design
-started with half the trailing margin the ideal tick-8 sample would have had, for three tick-sized
-implementation details nobody chose deliberately.
+**When it bites.** *(1 mark)* A peer transmitter that runs fast relative to this receiver. This is
+not hypothetical: each end rounds its own integer divider and runs from its own clock, so each is
+off by its own amount, and what the receiver sees is the difference. At 115200 this peripheral, with
+`BAUD_DIV = 27`, is itself **+0.47% fast**, which happens to push that difference towards the roomy
+side; a divider that rounds up instead, making this end slow (9600, at -0.15%, is one), or a peer
+whose own rate errs upward, spends the small one. The margin is still ample for a well-configured
+link - the point is that the design started with half the trailing margin the ideal tick-8 sample
+would have had, for three tick-sized implementation details nobody chose deliberately.
 
 Accept a candidate who works in "percent baud error" rather than tick-period ratios, provided the
 asymmetry and the roughly-halved fast-side figure come out.
@@ -524,8 +534,9 @@ silently: no flag, no pulse, nothing on the wire. The line that decides it is
 `push := wr and (not full_s)`. The FIFO's contract is to preserve order and keep its flags honest,
 not to tell anybody it threw something away, which is why the caller must watch the flags.
 
-**The reserved bit.** `ER_OVERRUN`, **`ERROR_FLAGS` bit 2**. In this course's build it always reads
-`0`, because only `frame_err` has a producer - `ER_PARITY` (bit 1) is in the same position.
+**The reserved bit.** `ER_OVERRUN`, **`ERROR_FLAGS` bit 2**. In this course's build nothing in the
+hardware ever sets it, because only `frame_err` has a producer, so it reads `0` unless software
+writes a `1` there; `ER_PARITY` (bit 1) is in the same situation.
 
 That is a **reservation, not an omission**: the positions are fixed in the spec, in `uart_def.vhd`
 and in `register_map.hpp` (`error::OVERRUN = 2` on both sides), so an implementation that adds
@@ -546,17 +557,16 @@ force exactly that renumbering, and every existing driver with it.
     status_reg(31 downto 4) <= (others => '0');
     status_reg(ST_TX_READY) <= not tx_full_s;
     status_reg(ST_RX_VALID) <= not rx_empty_s;
-    status_reg(ST_ERROR)    <= is_error(err_flags);
+    status_reg(ST_ERROR)    <= err_flags(0) or err_flags(1) or err_flags(2);
     status_reg(ST_TX_IDLE)  <= tx_empty_s and (not tx_busy);
 ```
 
-Five concurrent assignments, not a process: there is no state here to clock. Accept
-`err_flags(0) or err_flags(1) or err_flags(2)` written out in place of a helper for `ST_ERROR`, and
-accept any spelling of the FIFO flag signals, but **the bits must be indexed by their `uart_def`
-names**, not by literals - that is the whole point of the package, and a candidate who writes
-`status_reg(1)` has thrown away the protection the shared map exists to give. The reserved line is
-worth having: without it bits 31-4 are undriven, and a read returns `'U'` in simulation rather than
-the zeros Part 2 promises.
+Five concurrent assignments, not a process: there is no state here to clock. Accept a comparison
+with `"000"`, or a helper function, in place of the OR for `ST_ERROR`, and accept any spelling of
+the FIFO flag signals, but **the bits must be indexed by their `uart_def` names**, not by literals -
+that is the whole point of the package, and a candidate who writes `status_reg(1)` has thrown away
+the protection the shared map exists to give. The reserved line is worth having: without it bits
+31-4 are undriven, and a read returns `'U'` in simulation rather than the zeros Part 2 promises.
 
 | Bit | Constant | Expression | Why it cannot be stored |
 |---|---|---|---|
@@ -585,10 +595,15 @@ STATUS = 0x00000001
 
 ### (b) 4 marks
 
-**The failing check.** `uart_regs_tb`'s "a bare `RX_DATA` read must **not** pop" case: it pushes a
-byte, reads `RX_DATA`, and then checks that `STATUS`'s RX-valid is *still* set. With a popping read,
-RX-valid clears on a plain read and the check fires. It is the check that pins the whole split down;
-without it the two designs are indistinguishable. *(1 mark)*
+**The failing check.** A read has no strobe, so a popping read can only be built from the address:
+`rx_pop` also asserted whenever `reg_idx = REG_RX_DATA`. That pops on the edge after which
+`uart_regs_tb` samples, so the first check to fire is **Case 5's `RX_DATA` read-back**, which
+asserts that `RX_DATA` returns the byte just pushed and reports
+`uart_regs_tb: RX_DATA mismatch, got 0x00!` - the byte is gone before the bench looks. A variant
+that pops as the address *leaves* `RX_DATA` survives Case 5 and trips Case 6 instead, "`RX_DATA`
+read must not pop!", which reads `STATUS` after a bare `RX_DATA` read and asserts that RX-valid is
+still set. Either is the split being pinned down; award the mark for either, with what it asserts.
+*(1 mark)*
 
 **Why a read with a side effect is harder.** *(2 marks)*
 
@@ -623,12 +638,13 @@ A bench that sends one byte at a time never sees it.
 
 ### (c) 3 marks
 
-**`uart_regs_tb`.** It never writes `CTRL`, so the enable bit holds the bank's reset value, `0`. The
-`TX_DATA` write is therefore swallowed, the TX FIFO stays empty, and the case that checks the FIFO
-front reports "TX FIFO front should be 0x5A" with whatever it actually saw. The message names the
-right register, so the cause is findable. *(1 mark)*
+**`uart_regs_tb`.** It does not write `CTRL` until its eighth case, so during the transmit case the
+enable bit holds the bank's reset value, `0`. The `TX_DATA` write is therefore swallowed, the TX
+FIFO stays empty, and the case that checks the FIFO front reports `uart_regs_tb: TX FIFO front
+should be 0x5A, got 0x00!`. The message names the right register, so the cause is findable. *(1
+mark)*
 
-**`uart_top_tb`.** It never writes `CTRL` either. The byte never enters the TX FIFO, so nothing is
+**`uart_top_tb`.** It never writes `CTRL` at all. The byte never enters the TX FIFO, so nothing is
 transmitted, nothing loops back, nothing arrives in the RX FIFO, and the bench polls `STATUS` for
 RX-valid up to its poll limit and gives up.
 
@@ -719,14 +735,16 @@ loop, having received nothing at all. *(1 mark)*
 `writeReg(reg::CTRL, 1U << ctrl::ENABLE)`.
 
 Consequence, and this is the interesting part: **in this course's build, nothing happens.** `CTRL`
-gates nothing, so the peripheral transmits and receives exactly as before and every test and every
-bench passes. The bug is a time bomb: it becomes a peripheral that never enables on the first day
-somebody wires `CT_ENABLE` to something real, in a driver that has looked correct for months.
-*(1 mark)*
+gates nothing, so the peripheral transmits and receives exactly as before, and every testbench and
+every rung of the bench passes. Only the host suite notices - `Uart.ConfigureWritesBaudThenEnable`
+expects the `CTRL` write to end in `0x01` and gets `0x00` - and without that one assertion the bug
+is a time bomb: it becomes a peripheral that never enables on the first day somebody wires
+`CT_ENABLE` to something real, in a driver that has looked correct for months. *(1 mark)*
 
-**A mask stored where the map stores a position.** `RX_VALID` is now `2`, so `1U << status::RX_VALID`
-shifts by two and tests **bit 2**, the `ERROR` bit. `read()` returns `true` when an error is latched
-and `false` otherwise, so it never delivers a byte and does deliver on a framing error.
+**A mask stored where the map stores a position.** `RX_VALID` is now `2`, so `1U <<
+status::RX_VALID` shifts by two and tests **bit 2**, the `ERROR` bit. `read()` returns `true` when
+an error is latched and `false` otherwise, so it never delivers a byte and does deliver on a framing
+error.
 
 Worse than the behaviour is where the bug lives: the two sides of the wire now **disagree about the
 map**, since `uart_def.vhd` still has `ST_RX_VALID = 1`. Nothing on the host can find it, because
@@ -937,8 +955,9 @@ stale/empty-FIFO data if not. Every byte is either skipped outright or delivered
 and the stream is silently corrupted rather than stalled - which is harder to diagnose than the
 first mistake, not easier.
 
-**The pop on empty.** *(1 mark)* The test is **"`read()`, on no data, must report failure and issue
-no `RX_POP`"**. What the stray pop actually does to *this* peripheral: `fifo` guards `rd` on
+**The pop on empty.** *(1 mark)* The test is **`Uart.ReadWhenEmptyReturnsFalseAndDoesNotPop`**:
+`read()`, on no data, must report failure and issue no `RX_POP`, so the record holds one
+transaction, not three. What the stray pop actually does to *this* peripheral: `fifo` guards `rd` on
 `not empty`, so it is dropped and no queued byte is lost.
 
 "Nothing bad happens" is not a defence, for three reasons:
@@ -958,8 +977,8 @@ them `const` would be a lie about what calling them does - to the reader first a
 second. *(1 mark)*
 
 **What the cast does, and why it is not needed here.** *(1 mark)*
-`const_cast<transport::Interface&>(myTransport)` yields a non-`const` reference the three methods can
-be called on - but it strips nothing, because the enclosing `const` never reached the transport.
+`const_cast<transport::Interface&>(myTransport)` yields a non-`const` reference the three methods
+can be called on - but it strips nothing, because the enclosing `const` never reached the transport.
 
 The compiler would accept the calls **without** it as `Uart` is written today, because `myTransport`
 is a **reference member**: `const` does not propagate through a reference, so inside a `const`
@@ -971,11 +990,11 @@ It becomes genuinely required the moment the transport is held differently - by 
 compiling. Writing it now means that change is a one-word edit rather than a redesign.
 
 **The undefined case.** *(1 mark)* Casting away `const` is undefined behaviour when the object being
-cast is **actually `const`** - declared `const`, or a temporary bound to a `const` reference - and is
-then modified through the resulting reference. That is not what happens here: `myTransport` refers
-to a real, non-`const` transport that the caller constructed and owns (a `Stub` on the host, an
-`AvrSpi` on the target), so driving it is defined. The one hard rule is to cast away `const` only on
-an object that is not genuinely `const`, and this obeys it.
+cast is **actually `const`** - declared `const`, or a temporary bound to a `const` reference - and
+is then modified through the resulting reference. That is not what happens here: `myTransport`
+refers to a real, non-`const` transport that the caller constructed and owns (a `Stub` on the host,
+an `AvrSpi` on the target), so driving it is defined. The one hard rule is to cast away `const` only
+on an object that is not genuinely `const`, and this obeys it.
 
 ---
 
@@ -1012,20 +1031,22 @@ what it must, so that the destructor can put back exactly that and nothing else 
 taken, so it is never given back.
 
 **Without the middle statement.** *(half of the last mark)* `PORTB` resets to zero, so the instant
-`DDRB` makes PB2 an output the pin is actively driven **low**. The FPGA therefore sees `ss` asserted
-from construction onward: `spi_slave` reports `ss_active` before any command byte, and
-`spi_reg_bridge` begins counting a transaction from whatever byte happens to arrive first.
-`begin()`'s further drive low is a no-op, `SS` never rises between transactions, and the bridge
-never sees a transaction boundary - the first five bytes are decoded as one transaction and
-everything after is treated as a continuation of it. Nothing works, and nothing in a MOSI byte log
-looks wrong, which ties back to 6(a).
+`DDRB` makes PB2 an output the pin is actively driven **low**: the chip select is asserted from
+construction onward, with the bus idle. `spi_slave` sees `ss` fall and loads its first byte, and the
+bridge's byte counter waits at zero. The first transaction therefore still decodes, provided `SCK`
+has not moved: `begin()`'s drive low is a no-op, the five bytes arrive as a command and four data
+bytes, and `end()` raises `SS` for the first time, after which every transaction is framed
+normally. That is what makes the omission dangerous rather than loud: nothing on the bench and
+nothing in a MOSI byte log looks wrong, while the contract's idle-high chip select has been broken.
+Any `SCK` activity between construction and the first `begin()` would be counted as the start of a
+command byte and misalign that whole first transaction, because the only boundary the bridge knows
+is `SS` rising, which ties back to 6(a).
 
 ### (b) 3 marks
 
-**What it returns.** The byte left in `SPDR` from the **previous** exchange. The receive buffer still
-holds the last completed transfer's result, because the transfer just started has not shifted a
-single bit yet - the write to `SPDR` starts the shift, it does not perform it.
-*(1 mark)*
+**What it returns.** The byte left in `SPDR` from the **previous** exchange. The receive buffer
+still holds the last completed transfer's result, because the transfer just started has not shifted
+a single bit yet - the write to `SPDR` starts the shift, it does not perform it. *(1 mark)*
 
 **How long it takes.** Eight `SCK` periods, one per bit. At 1 MHz that is **8 us**, which at
 16 MHz is about **128 ATmega instruction cycles** - an eternity in instructions, and the reason the
@@ -1045,27 +1066,34 @@ transfer. That is not incidental: without it the flag would still be set at the 
 `transfer()` and the spin would fall straight through, so the correct code owes its correctness to
 the clearing sequence as much as to the wait.
 
-**What the driver sees.** *(1 mark)* Every returned byte is one exchange stale. The reply to the
-command byte is discarded anyway, so `readReg` assembles the byte that belonged to the command
-exchange together with the first three data exchanges - a `STATUS` word built from the tail of the
-previous transaction and the head of this one. The driver reads values the peripheral never
-presented, and the poll loops behave differently depending on what was read last, which is the worst
-kind of bug to meet first on a bench.
+**What the driver sees.** *(1 mark)* On the host mock, which models only the missing wait, every
+returned byte is one exchange stale: the reply to the command byte is discarded anyway, so `readReg`
+assembles the replies that belonged to the command exchange and the first three data exchanges - a
+`STATUS` word built from the tail of the previous transaction and the head of this one. On the
+ATmega it is worse, because the transmit side is single-buffered: a write to `SPDR` while a byte is
+still shifting sets `WCOL` and is discarded. The whole of `readReg` runs in about the time one byte
+takes at 1 MHz, so the dummy writes collide with the command byte and are lost, `end()` raises `SS`
+with the transaction nowhere near five bytes, and the bridge abandons it with no side effects - a
+`writeReg` built on this `transfer` commits nothing either. Every `SPDR` read returns whatever the
+receive buffer last completed, never the register's bytes, which is the worst kind of bug to meet
+first on a bench.
 
 ### (c) 2 marks
 
-**What the hardware does.** It clears **`MSTR`** in `SPCR` and sets `SPIF`. The ATmega demotes itself
-to a **slave** on the spot, stops driving `SCK`, and abandons the transfer in flight. This is why
-`SS`/PB2 must be an output in master mode even when something else is being used as the chip select
+**What the hardware does.** It clears **`MSTR`** in `SPCR` and sets `SPIF`. The ATmega demotes
+itself to a **slave** on the spot, stops driving `SCK`, and abandons the transfer in flight. This is
+why `SS`/PB2 must be an output in master mode even when something else is being used as the chip
+select
 - and here PB2 *is* the chip select, so driving it is the transport's job anyway. *(1 mark)*
 
-**What the spin does, and the symptom.** *(1 mark)* The spin ends **immediately**, because the
-demotion set `SPIF`, and `transfer()` returns a byte that was never clocked in. So the failure does
-not hang - it succeeds, wrongly, which is worse.
+**What the spin does, and the symptom.** *(1 mark)* The spin in flight ends **immediately**, because
+the demotion set `SPIF`, and `transfer()` returns a byte that was never clocked in: that call
+succeeds, wrongly. The next one is where it stops. The SPI is now a slave, so writing `SPDR` only
+loads the shift register and waits for a master's `SCK` that nobody drives; `SPIF` never sets, and
+the spin loops for ever.
 
-From then on: `SCK` stops moving on the analyzer, every `readReg` returns a constant (typically all
-ones or all zeros, depending on the idle level of `MISO`), `write()` and `read()` disagree with the
-peripheral for ever, and nothing recovers - the transport configured `SPCR` once in its constructor
+On the bench: `SCK` stops moving on the analyzer, and the firmware freezes inside `transfer()` one
+byte after the demotion. Nothing recovers - the transport configured `SPCR` once in its constructor
 and never revisits it, so `MSTR` stays clear until the chip is reset.
 
 ### (d) 2 marks
@@ -1103,9 +1131,10 @@ What emits each reference:
   requires the unsized one to exist beside it, and only the unsized one is emitted under
   `-fno-sized-deallocation`. On AVR `size_t` is `unsigned int`, so that is the second parameter's
   type; `std::size_t` is not available to name it.
-* **`__cxa_pure_virtual`** - named by every **abstract class's** vtable, so `driver::uart::Interface`
-  alone is enough to require it. It is called only if a pure virtual is somehow invoked, so an empty
-  body is honest: there is nothing useful to do and nowhere to report it.
+* **`__cxa_pure_virtual`** - named by every **abstract class's** vtable, so
+  `driver::uart::Interface` alone is enough to require it. It is called only if a pure virtual is
+  somehow invoked, so an empty body is honest: there is nothing useful to do and nowhere to report
+  it.
 * **`__cxa_guard_acquire` / `_release` / `_abort`** - the guard around a **function-local
   `static`**'s one-time initialization. Single-threaded definitions are all a bare-metal target
   needs.
@@ -1172,9 +1201,11 @@ the point of the exercise: everything else on the list is transport.
 
 **What the ladder has cleared.** *(1 mark)*
 
-* **Rung a**, data-plane pin loopback: the USB-serial adapter, its 3.3 V logic levels, the
-  terminal's baud and frame settings, the two data-plane wires and their crossover, and the FPGA pin
-  assignment. None of the candidate's logic is in that path, which is what makes it a clean result.
+* **Rung a**, data-plane pin loopback: the USB-serial adapter, its 3.3 V logic levels, the two
+  data-plane wires and their crossover, and the FPGA pin assignment. None of the candidate's logic
+  is in that path, which is what makes it a clean result. What it cannot clear is the terminal's
+  baud setting: the terminal talks to itself, and a loopback agrees with itself at any rate, for the
+  same reason rung c does.
 * **Rung b**, the control plane: the level shifter on all four SPI lines, `AvrSpi`'s configuration,
   `spi_slave` and `spi_reg_bridge`, and the bank's write and read paths - proven by a `BAUD_DIV`
   write and read-back.
@@ -1187,9 +1218,9 @@ which any absolute timing requirement exists at all.
 
 **The likely cause, and why rung c hides it.** *(1 mark)* A **baud mismatch**. In loopback the
 transmitter and receiver are driven by the *same* `baud_gen`, from the *same* 50 MHz clock, with the
-*same* `BAUD_DIV`. Any divider whatsoever passes rung c - including a wildly wrong one - because both
-ends are wrong by exactly the same amount and the frame is still sixteen ticks per bit at both ends.
-Rung d is the first time the number has to be right in absolute terms.
+*same* `BAUD_DIV`. Any divider whatsoever passes rung c - including a wildly wrong one - because
+both ends are wrong by exactly the same amount and the frame is still sixteen ticks per bit at both
+ends. Rung d is the first time the number has to be right in absolute terms.
 
 The two symptoms together point the same way: corruption in both directions is a *timing*
 disagreement. A broken, uncrossed or floating data-plane wire gives silence, not wrong characters.
@@ -1204,12 +1235,16 @@ error     = (115_740.7 - 115_200) / 115_200 = +0.47%
 
 Question 3 puts this receiver's combined tolerance at roughly **+2.5% / -7.7%**, so 0.47% is nowhere
 near the edge and `BAUD_DIV = 27` is **exonerated**. To blame the divider you would need a
-percent-scale error: a terminal set to 57600 or 9600 rather than 115200; a `BAUD_DIV` of **26**,
-which gives 120 192 baud, +4.3% against the terminal's 115 200 and so outside the +2.5% fast-side
-limit outright; or a board clock that is not actually 50 MHz, which would move both halves of the
-peripheral together and so would also have been invisible at rung c. Note that `BAUD_DIV = 28` is
-*not* on that list: 111 607 baud is -3.1%, comfortably inside the -7.7% slow side, so it would only
-bite if the terminal were also slow. Those are the places to look, in that order.
+percent-scale error, and the direction matters, because Question 3 found this receiver's budget
+lopsided. A `BAUD_DIV` of **28** gives 111 607 baud, -3.1%: this receiver's ticks are then 3.2%
+longer than the terminal's, beyond the +2.56% fast-transmitter limit, so typed characters fail while
+the driver's own bytes, read by the terminal's receiver with its full five percent, still arrive. A
+`BAUD_DIV` of **26** gives 120 192 baud, +4.3%: inside this receiver's 7.7% on the other side, and
+only marginal at the terminal. Neither produces what this bench shows, corruption in *both*
+directions, which takes a bigger error: a terminal set to 57600 or 9600 rather than 115200 - the one
+setting rung a cannot check - or a board clock that is not actually 50 MHz, which would move both
+halves of the peripheral together and so would also have been invisible at rung c. Those are the
+places to look, in that order.
 
 ### (c) 3 marks
 
@@ -1235,7 +1270,7 @@ int main()
 
     app::EchoNode node{uart};
 
-    const bool stop{false};
+    volatile bool stop{false};
     node.run(stop);
 
     return 0;
@@ -1254,21 +1289,21 @@ The marks are in the **order and the ownership**, not the punctuation:
   which on this target is never. This is the freestanding constraint paying off rather than biting:
   the design was reference-injected from L06, so the target needs no `operator new` and none is
   available. A candidate reaching for `new` here has not understood what L09 removed.
-* **`main` is the only file that names concrete types.** `EchoNode` sees an interface, `Uart` sees an
-  interface; swapping the transport for the L08 stub is an edit to these three lines and nothing
+* **`main` is the only file that names concrete types.** `EchoNode` sees an interface, `Uart` sees
+  an interface; swapping the transport for the L08 stub is an edit to these three lines and nothing
   else.
 
 `return 0` is unreachable and that is fine - `run()` never returns with `stop` held `false`. Accept
 an infinite loop after `run()` instead, or `for(;;)` in place of the return; do not accept a `main`
 that falls off the end into avr-libc's exit path with the peripheral still live.
 
-**Why the flag is `false` here.** *(1 mark)* On the bench there is nobody to stop it: the node should
-echo for as long as the board has power, so `stop` is a `const bool` that is never written and
-`run()` is an infinite loop by construction. In the host test the very same parameter is what *ends*
-the run - the L06 UART stub sets the caller's flag `true` the moment its scripted RX buffer runs out.
-One `bool&`, read every pass, serves both: production runs forever because nothing sets it, and the
-test terminates because something does. That is why it is a reference rather than a return value or
-a one-time check.
+**Why the flag is `false` here.** *(1 mark)* On the bench there is nobody to stop it: the node
+should echo for as long as the board has power, so `stop` is a `volatile bool` that nothing ever
+writes and `run()` is an infinite loop by construction. In the host test the very same parameter is
+what *ends* the run - the L06 UART stub sets the caller's flag `true` the moment its scripted RX
+buffer runs out. One flag, taken by `const volatile bool&` and read every pass, serves both:
+production runs forever because nothing sets it, and the test terminates because something does.
+That is why it is a reference rather than a return value or a one-time check.
 
 **Why not `readBlocking()`.** It would spin inside `Interface::read()` until a byte
 arrived, and would therefore never return to the top of the loop - so `stop` would never be read
@@ -1287,8 +1322,8 @@ or not. Poll where you might have to give up; block where you have already commi
 ### (d) 2 marks
 
 **Symptom and risk.** *(1 mark)* The FPGA input is being driven above its own 3.3 V supply. At best
-the pin misbehaves and the control plane is unreliable - a `BAUD_DIV` write that reads back wrong, or
-intermittently right, which is the worse of the two because it looks like a software problem. At
+the pin misbehaves and the control plane is unreliable - a `BAUD_DIV` write that reads back wrong,
+or intermittently right, which is the worse of the two because it looks like a software problem. At
 worst the pin's protection diode conducts into the 3.3 V rail and the pin, or the I/O bank, is
 damaged. This is the one genuine electrical hazard on the bench, which is why the wiring is checked
 before power is applied.

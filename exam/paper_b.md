@@ -55,8 +55,8 @@ what it does to the running system earns the other half. "This is wrong" scores 
 | SPI transaction              | 5 bytes: 1 command byte, then 4 data bytes MSB first |
 | SPI command byte             | bit 7 = W (1 write, 0 read), bits 6-4 = 0, bits 3-0 = register index |
 
-The register map itself is **not** supplied: Question 5 asks you to write it out, and Questions 4 and
-6 consume it, which is what the follow-through rule is for.
+The register map itself is **not** supplied: Question 5 asks you to write it out, and Questions 4
+and 6 consume it, which is what the follow-through rule is for.
 
 ### Marks
 
@@ -183,8 +183,8 @@ State what makes `valid` and `frame_err` exactly one clock wide, why the byte is
 framing error rather than delivered alongside a flag, and what the register bank does with each of
 the two pulses. (3 marks)
 
-**(d)** An earlier revision of `uart_rx_tb` sent `0xA5` in its clean-frame case and `0x3C` elsewhere,
-while `uart_top_tb` sent `0x5A` through a `tx`-to-`rx` loopback.
+**(d)** An earlier revision of `uart_rx_tb` sent `0xA5` in its clean-frame case and `0x3C`
+elsewhere, while `uart_top_tb` sent `0x5A` through a `tx`-to-`rx` loopback.
 
 Show that a receiver which stores its data bits in the wrong order passed all three. Name the
 property `0xA5`, `0x3C` and `0x5A` share, state how many of the 256 bytes have it, and give the
@@ -209,11 +209,11 @@ a driver polled `STATUS` once per SPI transaction. (4 marks)
 
 **(b)** Write the bank's read path: the combinational decode that drives `reg_rdata` from
 `reg_addr`, covering all seven registers and the reserved indices, using `uart_def`'s constants.
-Then write the two write **actions**, for `TX_DATA` and for `RX_POP`, as they appear in the clocked
-process.
+Then write the two write **actions**, for `TX_DATA` and for `RX_POP`, as the course's bank
+implements them.
 
 State why the read is combinational rather than registered, what the `when others` branch must
-produce and why leaving it out would be a different kind of mistake here than in a purely
+produce and why getting it wrong would be a different kind of mistake here than in a purely
 combinational decoder, and what the bank relies on the provided bridge to guarantee about
 `reg_write`. (4 marks)
 
@@ -252,11 +252,11 @@ Then state why the constants are declared plain `constexpr` rather than `inline 
 rather than masks, naming the file on the other side of the wire that this decision keeps identical
 and the one-line idiom that forms a mask at the use site. (3 marks)
 
-**(c)** `driver::uart::Stub` holds `bool& myStop` as a member.
+**(c)** `driver::uart::Stub` holds `volatile bool& myStop` as a member.
 
-State what that reference is for and who owns the flag it refers to. State what `read()` does with it
-when the scripted RX buffer runs out, and why that behaviour exists at all given that a stub has no
-reason to care how a caller's loop terminates.
+State what that reference is for and who owns the flag it refers to. State what `read()` does with
+it when the scripted RX buffer runs out, and why that behaviour exists at all given that a stub has
+no reason to care how a caller's loop terminates.
 
 Then state what holding a reference member forces about the class's copy constructor, move
 constructor and default constructor, and why. (2 marks)
@@ -310,17 +310,17 @@ apart. (2 marks)
 
 ## Question 7 - Writing the transport (11 marks)
 
-**(a)** Write `driver::transport::AvrSpi` in full: the constructor, the destructor and the three seam
-methods, in the course's style, reaching the registers through the platform header's `SCK`, `MOSI`,
-`MISO` and `SS` bit positions and the `DDRB`, `PORTB`, `SPCR`, `SPSR` and `SPDR` registers.
+**(a)** Write `driver::transport::AvrSpi` in full: the constructor, the destructor and the three
+seam methods, in the course's style, reaching the registers through the platform header's `SCK`,
+`MOSI`, `MISO` and `SS` bit positions and the `DDRB`, `PORTB`, `SPCR`, `SPSR` and `SPDR` registers.
 
 The class configures the ATmega328P as an SPI master at f_osc/16, mode 0, MSB first.
 
 Then state exactly what the destructor must clear, what it must leave alone and why, and state why
 the constructor writes `SPCR = ...` rather than `SPCR |= ...`. (5 marks)
 
-**(b)** A candidate ships `~AvrSpi() noexcept override = default;`, on the grounds that the class has
-no members to release and the program never destroys it anyway.
+**(b)** A candidate ships `~AvrSpi() noexcept override = default;`, on the grounds that the class
+has no members to release and the program never destroys it anyway.
 
 Name the principle broken and list what the constructor took that is now never given back. Then give
 one concrete way this harms code that runs afterwards, and one reason "the program never destroys
@@ -342,18 +342,18 @@ would notice first and why that is unfortunate. (3 marks)
 
 **(a)** Write `app::EchoNode` in full - `include/app/echo_node.hpp` and
 `source/app/echo_node.cpp` - in the course's AVR-portable style. It implements `app::Interface`,
-whose single operation is `void run(const bool& stop) noexcept`.
+whose single operation is `void run(const volatile bool& stop) noexcept`.
 
 Include the member, the constructor, the deleted operations and the loop body. State why the
-receive is the non-blocking `read()` while the echo is `writeBlocking()`, and why `stop` is a plain
-`bool` passed by `const` reference rather than an atomic or a return value. (4 marks)
+receive is the non-blocking `read()` while the echo is `writeBlocking()`, and why `stop` is a
+`volatile bool` passed by `const` reference rather than an atomic or a return value. (4 marks)
 
 **(b)** Describe the host test for it precisely enough to write: which stub it runs over, what it
 queues, how the loop is made to terminate, and what it asserts and in what order. Host test code may
 use full modern C++.
 
-Then state what an additional case that queues **nothing** proves, and name the implementation
-mistake it is the only case that catches. (3 marks)
+Then state what an additional case that queues **nothing** proves, name the implementation mistake
+it isolates, and say whether the three-byte case can catch that mistake too. (3 marks)
 
 **(c)** Give the five rungs of the bring-up ladder, in order, and for each name the single layer it
 adds that the previous rung did not exercise.

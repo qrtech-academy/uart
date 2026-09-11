@@ -2,8 +2,8 @@
 
 Marks are shown per part. Method carries them: a correct derivation with a slip in it is worth more
 than a correct answer with no working, and later parts consume earlier ones, so an error should be
-followed through rather than penalised twice. A candidate whose register map is wrong in Question 1
-and who then uses their own map consistently in Questions 4 and 5 loses the marks once.
+followed through rather than penalised twice. A candidate whose register map is wrong in Question 5
+and who then uses their own map consistently in Question 6 loses the marks once.
 
 Where a part asks for VHDL, mark the **hardware described**, not the syntax: the sensitivity list,
 the reset branch, whether a pulse is one clock wide, whether every path assigns its output, and
@@ -107,8 +107,8 @@ correctly and for declaring nothing a later lecture brings)*
                  spi_tx_data, reg_addr, reg_wdata, reg_write);
 ```
 
-Note that `miso` connects **straight to the entity port**, so it needs no signal of its own - that is
-the reason the list above has nine entries rather than ten, and it is the whole method of the
+Note that `miso` connects **straight to the entity port**, so it needs no signal of its own - that
+is the reason the list above has nine entries rather than ten, and it is the whole method of the
 exercise.
 
 **The two `rx_data` ports.** *(1 mark)* They are not one bus, and they are not even the same
@@ -226,8 +226,8 @@ end architecture;
 asynchronous reset with `reset_s2_n` in the sensitivity list and both outputs cleared; 1 for a
 **registered**, one-clock-wide `tick` with the counter reloading to zero)*
 
-Deduct for a `tick` driven combinationally, for a synchronous reset, or for a counter that reloads to
-`1`.
+Deduct for a `tick` driven combinationally, for a synchronous reset, or for a counter that reloads
+to `1`.
 
 **The comparison.** *(1 mark)*
 
@@ -263,19 +263,19 @@ error     = (9585.9 - 9600) / 9600 = -0.15%   (slow)
 
 *(2 marks: 1 for the divider, 1 for the achieved rate and a correctly signed error)*
 
-**Why `16 x baud`.** *(1 mark)* The receiver cannot see where a bit begins - there is no clock on the
-wire, only the line itself. So it **oversamples**: it watches `rx` sixteen times per bit, finds the
-falling edge that starts a frame, and then aims for the middle of each bit rather than its edge. For
-the transmitter and the receiver to share **one** time base rather than each keeping its own, that
-base has to tick at the finer rate.
+**Why `16 x baud`.** *(1 mark)* The receiver cannot see where a bit begins - there is no clock on
+the wire, only the line itself. So it **oversamples**: it watches `rx` sixteen times per bit, finds
+the falling edge that starts a frame, and then aims for the middle of each bit rather than its edge.
+For the transmitter and the receiver to share **one** time base rather than each keeping its own,
+that base has to tick at the finer rate.
 
-**`uart_rx` spends the sixteen.** It uses them for resolution: one to notice the start edge, eight to
-reach the middle of the start bit for the re-check that rejects a glitch, and then one sample every
-sixteen thereafter, at each bit's centre.
+**`uart_rx` spends the sixteen.** It uses them for resolution: one to notice the start edge, eight
+to reach the middle of the start bit for the re-check that rejects a glitch, and then one sample
+every sixteen thereafter, at each bit's centre.
 
-**`uart_tx` does not need them** and simply counts: sixteen ticks to a bit, changing the line only on
-bit boundaries. It shares the generator not because it needs the resolution but so that both halves
-are paced by the same divider from the same clock, with no handshake between them.
+**`uart_tx` does not need them** and simply counts: sixteen ticks to a bit, changing the line only
+on bit boundaries. It shares the generator not because it needs the resolution but so that both
+halves are paced by the same divider from the same clock, with no handshake between them.
 
 ### (c) 3 marks
 
@@ -289,8 +289,9 @@ frame <= STOP_BIT & parity_bit & data & START_BIT;   -- frame(10 downto 0)
 |---|---|---|---|---|
 | carries | start | `data(0)` .. `data(7)` | **parity** | stop |
 
-`FRAME_WIDTH` becomes 11 and `bit_idx` is declared `natural range 0 to 10`, so the terminal test
-`bit_idx >= FRAME_WIDTH-1` still reads correctly. The parity bit goes **between the last data bit and
+The vector is now 11 bits and `bit_idx` is declared `natural range 0 to 10`; the terminal test
+compares `bit_idx` with the last index of the frame actually being sent, 10 with parity and 9
+without. The parity bit goes **between the last data bit and
 the stop bit**, which is where the line protocol puts it, and the stop bit moves from index 9 to
 index 10.
 
@@ -300,15 +301,15 @@ index 10.
 even_parity <= data(0) xor data(1) xor data(2) xor data(3)
            xor data(4) xor data(5) xor data(6) xor data(7);
 
-parity_bit  <= '0'          when parity_en  = '0' else
-               even_parity  when parity_odd = '0' else
-               not even_parity;
+parity_bit  <= even_parity when parity_odd = '0' else not even_parity;
 ```
 
 Even parity makes the total number of ones - data plus parity - **even**, and the XOR of the data
 bits is exactly the bit that achieves it. Odd parity is its complement. (With `parity_en` clear the
-bit is not sent at all; a design that keeps the eleventh position and drives it `'0'` is *wrong*,
-because that is a frame with a permanently-zero parity bit rather than an 8N1 frame.)
+parity field is not sent at all: the stop bit stays at index 9 and the frame ends there, exactly as
+in 8N1. A design that always sends eleven bits and drives the parity position `'0'` when parity is
+off is *wrong*: an 8N1 receiver samples that `'0'` where it expects the stop bit, and reports a
+framing error on every byte.)
 
 **The variable field, and the cost.** *(1 mark)* With a `two_stop` input, the **stop field** is the
 only field whose length varies - 1 or 2 bits. Parity is a different matter: it adds a field rather
@@ -331,9 +332,9 @@ rather than data, where 8N1 spent a fifth (2 bits in 10).
 
 **What the bench checks about `busy`.** *(1 mark)* Nothing. `uart_tx_tb` **binds** `busy` and `done`
 but never asserts on either - the appendix says so in as many words. What it does check is that `tx`
-idles high, goes low within two bit periods of `start`, that the start bit is low at its centre, that
-the eight data bits match least significant first, and that the stop bit is high. A `busy` that rises
-one clock late is entirely invisible to it.
+idles high, goes low within two bit periods of `start`, that the start bit is low at its centre,
+that the eight data bits match least significant first, and that the stop bit is high. A `busy` that
+rises one clock late is entirely invisible to it.
 
 **What the feeder does.** *(1 mark)* The feeder is
 
@@ -423,8 +424,8 @@ end architecture;
 *(2 marks: 1 for the generic with its default and the vector ports sized from it; 1 for two flops in
 series with the **asynchronous** reset and `sync_out` taken from the **second**)*
 
-The commonest error worth deducting for is `sync_out <= sync_s1`, which throws away the entire point:
-the output must come from the flop that has had a full clock period to settle.
+The commonest error worth deducting for is `sync_out <= sync_s1`, which throws away the entire
+point: the output must come from the flop that has had a full clock period to settle.
 
 **Two edges.** *(1 mark)* `sync_out` follows `async_in` after **exactly two** rising edges.
 
@@ -480,15 +481,21 @@ and, **last on the tick**, after the `case` and inside the `if baud_tick = '1'`:
 rx_prev <= rx_s2;
 ```
 
-*(2 marks: 1 for the edge test and the glitch re-check with both outcomes; 1 for the history flop and
-its placement)*
+*(2 marks: 1 for the edge test and the glitch re-check with both outcomes; 1 for the history flop
+and its placement)*
 
-**Why the placement matters.** Updating `rx_prev` **after** the state machine has read it is what
-makes the comparison "this tick against the previous tick". Move it before the `case` and `rx_prev`
-already equals `rx_s2`, so `rx_s2 = START_BIT and rx_prev = STOP_BIT` can never both hold - the
-receiver never leaves idle and never receives anything. Worth noting alongside: the `ticks <= 0` in
+**Why the placement matters.** `rx_prev` is updated **on the tick**, inside `if baud_tick = '1'`,
+which is what makes the comparison "this tick against the previous tick". Update it on every clock
+instead and it holds the line as it was one clock ago, not one tick ago: a falling edge is then seen
+only if it arrives in the last clock before a tick, so the receiver misses nearly every start bit,
+and `uart_rx_tb` fails its first case, "expected exactly one valid byte". Where it sits *within* the
+tick does not change the hardware: `rx_prev` is a signal, so the `case` reads the value it had
+before this clock edge whatever the textual order, and a receiver with the assignment moved above
+the `case` passes `uart_rx_tb` unchanged. Writing it last is for the reader, since it puts the
+update where it takes effect. (Were it a *variable*, writing it first really would compare `rx_s2`
+with itself, and the receiver would never leave idle.) Worth noting alongside: the `ticks <= 0` in
 the idle branch overrides the tick-counter block above it, because that block comes first in the
-process and VHDL gives the **last** assignment in a process the final say.
+process and VHDL gives the **last** assignment to a signal in a process the final say.
 
 **The level test and the break.** *(2 marks)*
 
@@ -537,19 +544,20 @@ does not pass either.
 
 *(2 marks: 1 for both outcomes and the unconditional return to idle, 1 for the defaults)*
 
-**What makes the pulses one clock wide.** The defaults are written **first on every clock edge**, and
-only the specific case overrides them. So a `valid` set at one edge is cleared at the next, with no
-extra counter, no extra state and nothing to get out of step. Writing the default first and letting
-the specific case override it is the course's idiom for a single-cycle strobe, and it is the same
-one `uart_tx` uses for `done`.
+**What makes the pulses one clock wide.** The defaults are written **first on every clock edge**,
+and only the specific case overrides them. So a `valid` set at one edge is cleared at the next, with
+no extra counter, no extra state and nothing to get out of step. Writing the default first and
+letting the specific case override it is the course's idiom for a single-cycle strobe, and it is the
+same one `uart_tx` uses for `done`.
 
 **Why the byte is dropped.** *(1 mark)* A framing error means the receiver's idea of *where the bits
 were* is wrong: the stop bit was not high where it should have been, so the eight bits it sampled
-were sampled at times it cannot vouch for. Delivering them alongside a flag would put a byte into the
-RX FIFO that software cannot distinguish from good data once it has popped past it - `ERROR_FLAGS`
-is **global and sticky**, not attached to a FIFO entry, so there is no way to say "this byte in
-particular is suspect". Dropping it preserves the invariant that every byte in the RX FIFO is a byte
-the receiver believes in, and the sticky flag still tells software that something went wrong.
+were sampled at times it cannot vouch for. Delivering them alongside a flag would put a byte into
+the RX FIFO that software cannot distinguish from good data once it has popped past it -
+`ERROR_FLAGS` is **global and sticky**, not attached to a FIFO entry, so there is no way to say
+"this byte in particular is suspect". Dropping it preserves the invariant that every byte in the RX
+FIFO is a byte the receiver believes in, and the sticky flag still tells software that something
+went wrong.
 
 **What the bank does with each pulse.** `valid` becomes `uart_regs`' `rx_push`, so the byte enters
 the RX FIFO and `STATUS` bit 1 (RX-valid) goes high, where software can poll it. `frame_err` is
@@ -569,33 +577,34 @@ polled directly - turning them into levels is the register bank's entire job.
 
 A receiver that stores its data bits in the reverse order delivers, for each of these, **exactly the
 byte that was sent**. Every check comparing the received byte with the expected one passed, and no
-other check in any of the three benches looks at bit order at all - so at that revision the whole of
+other check in either bench looks at bit order at all - so at that revision the whole of
 `hw/` was blind to it.
 
 **The property and the count.** They are **bit-reversal palindromes**. A palindrome is determined by
-its top four bits - `b7` fixes `b0`, `b6` fixes `b1`, and so on - so there are `2^4 = 16` of them out
-of 256. All three constants happen to be among the sixteen.
+its top four bits - `b7` fixes `b0`, `b6` fixes `b1`, and so on - so there are `2^4 = 16` of them
+out of 256. All three constants happen to be among the sixteen.
 
 **The second, independent reason for `uart_top_tb`.** *(1 mark)* It **loops `tx` back to `rx`**. A
-design built by one person from one set of appendices will get the order the same way in both halves,
-and a matched pair of reversals **cancels exactly**: the transmitter puts the byte on the wire
-backwards and the receiver reads it backwards, so the byte read back over SPI is the byte written,
-whatever the constant. Changing `0x5A` to something asymmetric would let the bench catch a *one-sided*
-flip - a receiver reversed while the transmitter is not - but it structurally cannot catch the
-matched pair, which is the likelier bug.
+design built by one person from one set of appendices will get the order the same way in both
+halves, and a matched pair of reversals **cancels exactly**: the transmitter puts the byte on the
+wire backwards and the receiver reads it backwards, so the byte read back over SPI is the byte
+written, whatever the constant. Changing `0x5A` to something asymmetric would let the bench catch a
+*one-sided* flip - a receiver reversed while the transmitter is not - but it structurally cannot
+catch the matched pair, which is the likelier bug.
 
-**What the bench reports today.** *(1 mark)* `0x53` is `0101 0011` and its reverse is `1100 1010`, so
-with the reversed-order receiver in place `data_out` carries **`0xCA`**. `uart_rx_tb`'s clean-frame
-case then fails and names both values, since its message already prints the expected and the
-received byte through `to_hex`:
+**What the bench reports today.** *(1 mark)* `0x53` is `0101 0011` and its reverse is `1100 1010`,
+so with the reversed-order receiver in place `data_out` carries **`0xCA`**. `uart_rx_tb`'s
+clean-frame case then fails and names both values, since its message already prints the expected and
+the received byte through `to_hex`:
 
 ```text
 uart_rx_tb: received byte mismatch, expected 0x53, got 0xCA!
 ```
 
-The fix that got it there was one constant per bench - `TXBYTE` in `uart_tx_tb`, `BYTE_A` and
+The fix that got it there was a constant or two per bench - `TXBYTE` in `uart_tx_tb`, `BYTE_A` and
 `BYTE_B` in `uart_rx_tb`, and the transmitted byte in `uart_top_tb` - which is worth noting in its
-own right: the gap was three lines wide and had nothing to do with the checks themselves.
+own right: the gap was a handful of constants wide and had nothing to do with the checks
+themselves.
 
 **What is still out of reach.** A transmitter and a receiver that are reversed **together**.
 `uart_tx_tb` and `uart_rx_tb` each catch their own half, so the pair cannot survive both unit
@@ -603,8 +612,8 @@ benches - but `uart_top_tb` alone never could, for the structural reason above, 
 says "the loopback is fixed now" has missed it. No constant makes a loopback able to test a
 convention that both ends of it share.
 
-Full marks for reaching the conclusion by any route. The key insight, worth the bulk of the marks, is
-that a loopback bench cannot test a property that both halves get wrong together, and that a
+Full marks for reaching the conclusion by any route. The key insight, worth the bulk of the marks,
+is that a loopback bench cannot test a property that both halves get wrong together, and that a
 symmetric constant cannot test an ordering.
 
 ---
@@ -654,14 +663,16 @@ have to coincide with the exact cycle in which the bridge latches the read value
 to be a **level that persists until acknowledged**, and manufacturing that level from a pulse is
 what the latch is for.
 
-**Wired straight through.** *(1 mark)* `STATUS` bit 2 would read `0` on **every single poll, for
-ever**, no matter how many framing errors occurred. The system would appear to have no errors at all.
+**Wired straight through.** *(1 mark)* `STATUS` bit 2 would read `0` on **practically every poll,
+for ever**, no matter how many framing errors occurred: a poll sees it only if the bridge's
+one-clock latch happens to fall on the one clock the pulse is high. The system would appear to have
+no errors at all.
 
 Worse, it would appear so *consistently*: a driver would never see the bit flicker, never see it
-disagree with `ERROR_FLAGS`, and have nothing at all to suggest the mechanism was broken. A flag that
-is always wrong in the same direction is far harder to notice than one that is sometimes wrong, and
-the first evidence would be a bench full of corrupted bytes and a peripheral cheerfully reporting
-itself healthy.
+disagree with `ERROR_FLAGS`, and have nothing at all to suggest the mechanism was broken. A flag
+that is always wrong in the same direction is far harder to notice than one that is sometimes wrong,
+and the first evidence would be a bench full of corrupted bytes and a peripheral cheerfully
+reporting itself healthy.
 
 ### (b) 4 marks
 
@@ -686,23 +697,17 @@ write-only registers and every reserved index read **zero**, and that every path
 **The write actions.** *(1 mark)*
 
 ```vhdl
-        -- Defaults, so each FIFO strobe is exactly one clock wide.
-        tx_wr <= '0';
-        rx_rd <= '0';
-
-        if (reg_write = '1') then
-            case addr is
-                ...
-                when REG_TX_DATA =>
-                    tx_wdata <= reg_wdata(7 downto 0);
-                    tx_wr    <= '1';       -- push one byte into the TX FIFO
-                when REG_RX_POP =>
-                    rx_rd    <= '1';       -- advance the RX FIFO past its front byte
-                ...
-                when others => null;       -- reserved indices: ignored
-            end case;
-        end if;
+tx_push <= '1' when reg_write = '1' and reg_idx = REG_TX_DATA else '0';
+rx_pop  <= '1' when reg_write = '1' and reg_idx = REG_RX_POP  else '0';
 ```
+
+Two concurrent strobes, outside any process, where `reg_idx` is `to_integer(unsigned(reg_addr))`:
+`tx_push` is the TX FIFO's `wr`, with `reg_wdata(7 downto 0)` bound to its `wdata`, and `rx_pop` is
+the RX FIFO's `rd`. In the clocked process the two indices do **nothing**: each FIFO registers its
+own strobe on the same edge, and writing FIFO logic into the process as well is the most common way
+to get two bytes out of one write. A candidate who registers the strobes inside the process instead,
+with defaults of `'0'` at the top and `'1'` in the two branches, builds a working bank one clock
+slower; give the mark if the strobes are provably one clock wide.
 
 Both are **edge events**: one write, one action, never a held level. That is what makes them safe to
 be one-cycle strobes into the FIFOs.
@@ -719,20 +724,23 @@ off-by-one until somebody notices the pattern.
 read side and `null` on the write side, because the protocol **defines** indices 7-15 as reserved: a
 read returns `0x00000000` and a write is ignored.
 
-In an ordinary combinational decoder, omitting `when others` is a *synthesis* mistake - it infers a
-latch, because the tool has no value for the uncovered case and must therefore hold. That is true
-here too. But here it is also a **protocol violation**: a driver is entitled to probe an
-unimplemented register and get zero, and a bank that returned something else - or held the previous
-value - would be non-compliant even if it inferred no latch at all. Two independent reasons for the
-same line.
+VHDL does not let you leave the branch out altogether: the choices of a `case` or a selected
+assignment must cover every value of the selector, and an integer selector has far more than seven,
+so a missing `others` does not even analyze. What a decoder *can* get wrong is an `others` that
+assigns nothing - `when others => null;` in a combinational process with no default assignment above
+the `case` - and in an ordinary decoder that is a *synthesis* mistake: it infers a latch, because
+the output has no value for the uncovered case and must therefore hold. That is true here too. But
+here it is also a **protocol violation**: a driver is entitled to probe an unimplemented register
+and get zero, and a bank that returned something else - or held the previous value - would be
+non-compliant even if it inferred no latch at all. Two independent reasons for the same line.
 
 **What the bank relies on.** *(1 mark)* That `spi_reg_bridge` asserts `reg_write` **only on a
 completed, non-aborted write transaction** (protocol spec, Part 3). A strobe the bank sees is
 therefore always a real commit. That single guarantee is what lets `TX_DATA` and `RX_POP` be simple
-one-cycle actions with no commit-and-abort machinery of their own - the bank never has to think about
-`SS` at all. If a half-finished transaction could reach it as a `reg_write`, every write action in
-the bank would need to be held pending and rolled back, and the read/pop split would stop being an
-elegance and start being a necessity.
+one-cycle actions with no commit-and-abort machinery of their own - the bank never has to think
+about `SS` at all. If a half-finished transaction could reach it as a `reg_write`, every write
+action in the bank would need to be held pending and rolled back, and the read/pop split would stop
+being an elegance and start being a necessity.
 
 ### (c) 3 marks
 
@@ -742,31 +750,33 @@ elegance and start being a necessity.
 overrun <= rx_push and rx_full;
 ```
 
-The receiver delivered a byte while the RX FIFO had no room, so `fifo`'s `not full` guard dropped it.
-Both signals are already inside `uart_regs` - `rx_push` is the receiver's `valid` and `rx_full` is
-the FIFO's own flag - so the detection is one AND gate. It sets the flag through the same latch as
-`frame_err`.
+The receiver delivered a byte while the RX FIFO had no room, so `fifo`'s `not full` guard dropped
+it. Both signals are already inside `uart_regs` - `rx_push` is the receiver's `valid` and `rx_full`
+is the FIFO's own flag - so the detection is one AND gate. It sets the flag through the same latch
+as `frame_err`.
 
 **The bit and the clear path.** `ER_OVERRUN`, **`ERROR_FLAGS` bit 2**, cleared by the same write of
 `0x00000000` to `ERROR_FLAGS` that clears the other two, and visible through `STATUS` bit 2 (the OR
 of the flags) so that a polling driver sees it without an extra register read.
 
-**What `uart_rx` would need, and why it is worse.** *(1 mark)* It would have to be told **whether the
-previous byte has been consumed** - in practice the RX FIFO's `full` flag, or a "byte still unread"
-level, as a new input port.
+**What `uart_rx` would need, and why it is worse.** *(1 mark)* It would have to be told **whether
+the previous byte has been consumed** - in practice the RX FIFO's `full` flag, or a "byte still
+unread" level, as a new input port.
 
 That is a worse design because it inverts the dependency. `uart_rx`'s job is to recover bytes from a
 wire; it is a purely serial, purely synchronous module with no knowledge of buffering and no reason
-to acquire any. Giving it a port that reports the state of a buffer it does not own couples it to the
-register bank's internal storage, and means `uart_rx_tb` would have to model a FIFO in order to test
-a receiver. The bank already holds both facts, one clock apart, in one module.
+to acquire any. Giving it a port that reports the state of a buffer it does not own couples it to
+the register bank's internal storage, and means `uart_rx_tb` would have to model a FIFO in order to
+test a receiver. The bank already holds both facts, one clock apart, in one module.
 
 **The two physical causes.** *(1 mark)*
 
 * **Overrun** - the wire is fine and the *software* is late. A host busy elsewhere, a poll loop that
   stalled, or simply a line faster than the loop can drain: at 115200 a byte arrives every 86.8 us,
-  and a single five-byte SPI poll costs at least 40 us, so two transactions per byte is already most
-  of the budget. It is a timing failure above the peripheral.
+  a single five-byte SPI transaction costs at least 40 us, and receiving one byte takes three of
+  them - the `STATUS` poll, the `RX_DATA` read and the `RX_POP` write - so at least 120 us. A
+  continuous stream at 115200 outruns even a driver that does nothing else, and the eight-entry FIFO
+  only postpones the loss. It is a timing failure above the peripheral.
 * **Framing error** - the *wire* is not fine. A baud mismatch large enough to move the stop-bit
   sample out of its bit, a break from a transmitter that lost power or a cable that came loose,
   noise or a reflection on a long unterminated run, or a level-shifting problem. It is an electrical
@@ -794,8 +804,8 @@ separate bits rather than one "something went wrong" flag.
    - so TX-idle goes stale whenever the datapath moves without the bank being told.
 
 **The rule.** Derive a status bit from **the state it reports**, never from the events that changed
-that state. A register written by events is wrong whenever an event is missed, whenever two coincide,
-whenever something changes without an event, and immediately after reset.
+that state. A register written by events is wrong whenever an event is missed, whenever two
+coincide, whenever something changes without an event, and immediately after reset.
 
 ---
 
@@ -943,8 +953,9 @@ constexpr uint8_t TX_IDLE{3U};
 the right values)*
 
 **Why plain `constexpr`.** *(1 mark, shared with the next point)* `inline` **variables** are a C++17
-feature, and the AVR toolchain the course targets does not have them - it does not accept
-`-std=c++17` at all. Plain `constexpr` compiles everywhere the course needs it to.
+feature, and the oldest AVR toolchain the course targets, the avr-gcc Microchip Studio ships, does
+not have them - it does not accept `-std=c++17` at all. Plain `constexpr` compiles everywhere the
+course needs it to.
 
 **What internal linkage costs here: nothing.** At namespace scope `constexpr` already implies
 internal linkage, so each translation unit gets its own copy of a **compile-time** constant. That
@@ -954,9 +965,9 @@ twice.
 
 **Positions rather than masks.** It keeps the C++ **identical to `uart_def.vhd`**, which stores
 `natural` bit positions because that is what indexes a `std_logic_vector`, and identical to the
-spec's own "bit N" wording. The two sides are then each checked against the specification rather than
-against each other, which is the only arrangement in which a disagreement is findable. The mask is
-formed at the use site:
+spec's own "bit N" wording. The two sides are then each checked against the specification rather
+than against each other, which is the only arrangement in which a disagreement is findable. The mask
+is formed at the use site:
 
 ```cpp
 if (status & (1U << status::RX_VALID)) { /* a byte is waiting */ }
@@ -967,9 +978,9 @@ which is explicit about which bit is meant and cannot be mistaken for a value.
 ### (c) 2 marks
 
 **What it is for, and who owns it.** *(1 mark)* `myStop` refers to a flag the **caller** owns - the
-very flag the application's `run(const bool& stop)` is watching. The stub sets it `true` the moment
-its scripted RX buffer is exhausted, so a single-threaded test can end an application loop that would
-otherwise never return.
+very flag the application's `run(const volatile bool& stop)` is watching. The stub sets it `true`
+the moment its scripted RX buffer is exhausted, so a single-threaded test can end an application
+loop that would otherwise never return.
 
 `read()` therefore does two things when the buffer runs out: it sets `myStop` to `true` and returns
 `false`. Both matter - the `false` says "no byte this pass", the flag says "and there will not be
@@ -977,27 +988,32 @@ another".
 
 **Why a stub should care at all.** Because the thing it doubles for is a **UART**, and a real UART
 never runs out of input; it merely has none *yet*. There is no in-band way to say "that was all the
-input there will ever be", so the double supplies an out-of-band one. It is the double being faithful
-about the test's needs rather than about the hardware, which is exactly what a double is for.
+input there will ever be", so the double supplies an out-of-band one. It is the double being
+faithful about the test's needs rather than about the hardware, which is exactly what a double is
+for.
 
-**What the reference member forces.** *(1 mark)* A reference cannot be rebound after construction, so
-copy assignment and move assignment have no sensible definition and are **deleted**; the copy and
-move constructors are deleted with them, because a class that cannot be assigned but can be copied is
-a trap. And the **default constructor** is deleted because a reference member must be bound at
-construction - there is no way to build a `Stub` without a flag to point at. `Uart` and `EchoNode`
-delete the same five for the same reason.
+**What the reference member forces.** *(1 mark)* The language forces two things. The **default
+constructor** is implicitly deleted, because a reference member must be bound at construction -
+there is no way to build a `Stub` without a flag to point at. And the copy and move **assignment**
+operators are implicitly deleted, because a reference cannot be rebound after construction. The copy
+and move **constructors** are *not* forced: the implicit ones would compile, and bind the new stub
+to the same flag. The course deletes them anyway, explicitly, because a copy that shares its
+original's stop flag but not its buffers is a trap, and a class that cannot be assigned but can be
+copied invites exactly that mistake. `Uart` and `EchoNode` delete the same five for the same reason.
+Award the mark for saying which one is forced, and why the other two are deleted by choice.
 
 ### (d) 2 marks
 
 **The rule.** *(1 mark)* A test double must be faithful about **everything the code under test
 depends on**, and may ignore everything else. It is a fixture, not a model of the hardware: fidelity
-it is not asked for is fidelity nobody checks, and unchecked behaviour in a double is a liability the
-day it disagrees with the real thing.
+it is not asked for is fidelity nobody checks, and unchecked behaviour in a double is a liability
+the day it disagrees with the real thing.
 
 **Applied here.** The only application tested against `driver::uart::Stub` is `app::EchoNode`, which
-drives the UART entirely through `read()` and `write()`. It never calls `status()`, `errorFlags()` or
-`clearErrors()`. So returning `0` and doing nothing is not laziness - it is the correct amount of
-fidelity, and inventing a status word would mean shipping behaviour with nothing to check it against.
+drives the UART entirely through `read()` and `write()`. It never calls `status()`, `errorFlags()`
+or `clearErrors()`. So returning `0` and doing nothing is not laziness - it is the correct amount of
+fidelity, and inventing a status word would mean shipping behaviour with nothing to check it
+against.
 
 **What would have to change.** *(1 mark)* The moment an application makes a **decision** from the
 status word, the stub needs a scriptable one: a settable `uint32_t`, a helper such as
@@ -1064,8 +1080,8 @@ void Uart::writeReg(const uint8_t addr, const uint32_t value) noexcept
 `begin()` / five transfers / `end()` framing in both; 1 for **most significant byte first** in the
 read assembly; 1 for **most significant byte first** in the write split)*
 
-Byte order is the part to be strict about. Reverse either loop and the same four bytes cross the wire
-carrying a different 32-bit value, and neither the compiler nor a round trip through a
+Byte order is the part to be strict about. Reverse either loop and the same four bytes cross the
+wire carrying a different 32-bit value, and neither the compiler nor a round trip through a
 symmetrically-wrong stub will say a word.
 
 **The replies.** `readReg` **discards** the reply to the command byte: the slave was shifting that
@@ -1074,10 +1090,10 @@ out before it knew which register was being asked for, so it is meaningless by c
 from `MISO`, and the transfers happen only because SPI is duplex and a byte out costs a byte in.
 *(half a mark)*
 
-**What `const` buys.** *(half a mark)* It lets `status()` and `errorFlags()` - the two public methods
-that are pure observations - be `const` too. Those are the two that depend on it. Without it, a
-caller holding a `const Uart&` could not read the peripheral's status at all, which would be an odd
-thing for a `const` handle to forbid.
+**What `const` buys.** *(half a mark)* It lets `status()` and `errorFlags()` - the two public
+methods that are pure observations - be `const` too. Those are the two that depend on it. Without
+it, a caller holding a `const Uart&` could not read the peripheral's status at all, which would be
+an odd thing for a `const` handle to forbid.
 
 ### (b) 4 marks
 
@@ -1122,18 +1138,20 @@ stub.injectRxWord(0x00000041U);              // RX_DATA = 0x41
 **Ten bytes** in total, for **two** register values. *(1 mark)*
 
 **The discrepancy.** The stub is a **byte pipe**: it returns the next queued byte on *every*
-`transfer()` call, and a five-byte read transaction makes five of them. The reply the driver actually
-uses is only four bytes long, because the reply to the command byte is discarded - but it is still
-*consumed*. So each read costs one placeholder plus the four data bytes.
+`transfer()` call, and a five-byte read transaction makes five of them. The reply the driver
+actually uses is only four bytes long, because the reply to the command byte is discarded - but it
+is still *consumed*. So each read costs one placeholder plus the four data bytes.
 
 The third transaction needs nothing queued: it is a write, the driver ignores all five replies, and
 the stub returns `0x00` once its buffer is exhausted anyway.
 
 Getting this wrong is spectacular and confusing: queue only the four data bytes and every read is
-shifted by one, so `readReg` assembles the top three bytes of the value together with the *next*
-transaction's command reply, and the failure appears in a test two calls later. This is precisely why
-the provided suite wraps it in a `scriptRead(stub, value)` helper rather than leaving it at each call
-site.
+shifted by one byte. The command phase swallows the most significant byte, so `readReg` assembles
+the value's low three bytes, shifted up by eight bits, together with the first byte queued for the
+*next* read: `STATUS` reads back as `0x00000200`, RX-valid is clear, and `read()` returns `false`
+with a byte waiting. Every later read in the test is misaligned the same way. This is precisely why
+the provided suite wraps it in a `scriptRead(stub, value)` helper rather than leaving it at each
+call site.
 
 ### (c) 2 marks
 
@@ -1151,13 +1169,13 @@ inline void readBlocking(Interface& uart, uint8_t& data) noexcept
 
 *(1 mark for both, `inline` and `noexcept`, in the `driver::uart` namespace)*
 
-**Why `inline`.** *(1 mark, shared)* They are **defined in a header**, so every translation unit that
-includes it emits a definition. Without `inline` that is a one-definition-rule violation and a
+**Why `inline`.** *(1 mark, shared)* They are **defined in a header**, so every translation unit
+that includes it emits a definition. Without `inline` that is a one-definition-rule violation and a
 duplicate-symbol error at link time the moment two files include the header.
 
-**Why `Interface&` and not `Uart&`.** So they work over **any** implementation - the concrete `Uart`,
-the L06 `driver::uart::Stub`, any future driver - dispatching virtually at run time. Taking the
-concrete type would tie a convenience function to one implementation for no reason.
+**Why `Interface&` and not `Uart&`.** So they work over **any** implementation - the concrete
+`Uart`, the L06 `driver::uart::Stub`, any future driver - dispatching virtually at run time. Taking
+the concrete type would tie a convenience function to one implementation for no reason.
 
 **Why free functions in a separate header.** They add **no state and no new contract**: they are a
 spin loop over an operation the interface already provides. Putting them in the interface would
@@ -1175,19 +1193,19 @@ status()  ->  readReg(STATUS)  ->  write(cmd)  ->  readReg(STATUS)  ->  write(cm
 
 `Uart::write` polls `STATUS` before it sends anything, and `readReg` is what polls. So a `readReg`
 implemented in terms of `write()` calls the very method that calls it, with **no base case**:
-infinite mutual recursion, entered the first time anything reads a register - which is the first
-line of `configure()`'s successor and every single `read()` and `write()` thereafter.
+infinite mutual recursion, entered the first time anything reads a register: the first `read()`,
+`write()` or `status()` after `configure()`, which only writes, and every one thereafter.
 
 **What the ATmega328P exhibits.** *(1 mark)* Each level pushes a stack frame. The ATmega328P has
 **2 KB of SRAM**, the stack grows down from the top of it toward the statically allocated data, and
 there is no MMU, no stack guard, no exception and no fault handler. So the stack simply runs into
 `.data`/`.bss` and starts overwriting live variables, then keeps going.
 
-The symptom is not a clean crash: it is **memory corruption followed by a jump to a garbage address**,
-which typically presents as a device that appears to reset in a loop the moment the driver is first
-used, or that behaves erratically before it does. On the host the same bug is a segmentation fault,
-which is the kinder outcome and the reason the host suite finds it first - one more argument for
-building the driver on the host before it ever reaches a chip.
+The symptom is not a clean crash: it is **memory corruption followed by a jump to a garbage
+address**, which typically presents as a device that appears to reset in a loop the moment the
+driver is first used, or that behaves erratically before it does. On the host the same bug is a
+segmentation fault, which is the kinder outcome and the reason the host suite finds it first - one
+more argument for building the driver on the host before it ever reaches a chip.
 
 **The rule.** `transfer()` moves a **byte on the wire**; `write()` sends a **byte over the UART**.
 They are two different layers that happen to have the same shape, and the private register core may
@@ -1232,7 +1250,8 @@ void AvrSpi::end() noexcept { PORTB |= (1U << SS); }
 ```
 
 *(3 marks: 1 for the constructor's three statements with `SS` idled high and `MISO` untouched; 1 for
-`begin()` low / `end()` high; 1 for `transfer()` with the `SPIF` spin between the write and the read)*
+`begin()` low / `end()` high; 1 for `transfer()` with the `SPIF` spin between the write and the
+read)*
 
 `SPR0` set with `SPR1` clear and `SPI2X` clear gives f_osc/16 = 1 MHz. `DORD`, `CPOL` and `CPHA` are
 all clear, which is MSB-first, mode 0 - so the contract is met by bits that are *absent* as much as
@@ -1246,13 +1265,14 @@ by bits that are present.
 
 It must **leave alone**: `MISO`, because the constructor never touched it - it is an input at reset
 and stays one, and returning something you did not take is not RAII, it is trespass. Also `SPSR`,
-which is status rather than configuration, and every other bit of `DDRB` and `PORTB`, which belong to
-whatever else is using port B. The `&=` and `|=` forms are what confine the edits to those bits.
+which the constructor never wrote: its one configuration bit, `SPI2X`, is left at its reset value of
+0, which f_osc/16 relies on. And every other bit of `DDRB` and `PORTB`, which belong to whatever
+else is using port B. The `&=` and `|=` forms are what confine the edits to those bits.
 
-**Why `SPCR = ...` and not `SPCR |= ...`.** *(1 mark)* The plain assignment **guarantees** that every
-bit the design relies on being clear is clear: `DORD`, `CPOL`, `CPHA`, `SPIE` and `SPR1`. With `|=`,
-whatever was in `SPCR` beforehand survives - a bootloader, an Arduino core's `SPI.begin()`, or a
-previous `AvrSpi` that was never destroyed could have left `DORD` set (LSB first) or `SPR1` set (a
+**Why `SPCR = ...` and not `SPCR |= ...`.** *(1 mark)* The plain assignment **guarantees** that
+every bit the design relies on being clear is clear: `DORD`, `CPOL`, `CPHA`, `SPIE` and `SPR1`. With
+`|=`, whatever was in `SPCR` beforehand survives - anything that ran first, an Arduino core's
+`SPI.begin()` or a library of your own, could have left `DORD` set (LSB first) or `SPR1` set (a
 different prescaler), and the transport would silently run at the wrong bit order or the wrong rate
 with no line in the source to blame it on.
 
@@ -1273,22 +1293,22 @@ throws away the thing the base class went to the trouble of arranging.
 enabled and still owns those three pins.
 
 **Concrete harm.** *(1 mark)* Any code that runs afterwards and wants PB2, PB3 or PB5 as a
-general-purpose **input** finds them driven as outputs and reads its own drive rather than the world.
-Any code that wants the SPI peripheral in a different configuration - as a slave, at a different
-prescaler, LSB first - inherits a half-configured master rather than the reset state, and a transport
-that uses `|=` on `SPCR` (see (a)) would inherit `MSTR` and never notice. And with `SPE` still set the
-peripheral keeps driving `SCK` and `MOSI`, so anything else trying to use those pins fights the
-hardware for them.
+general-purpose **input** finds them driven as outputs and reads its own drive rather than the
+world. Any code that wants the SPI peripheral in a different configuration - as a slave, at a
+different prescaler, LSB first - inherits a half-configured master rather than the reset state, and
+a transport that uses `|=` on `SPCR` (see (a)) would inherit `MSTR` and never notice. And with `SPE`
+still set the peripheral keeps driving `SCK` and `MOSI`, so anything else trying to use those pins
+fights the hardware for them.
 
 **Why "never destroyed" is unsafe here in particular.** *(1 mark)* Because this codebase builds its
 objects as **automatic variables and injects them by reference**, and the **host test suite** does
 exactly that: it constructs an `AvrSpi` inside a scope, exercises it over the mocked register file,
 lets it go out of scope, and constructs another for the next case. With a do-nothing destructor the
-peripheral it configured outlives it, so a defaulted destructor is observably wrong even on the host.
-The suite defends itself today by calling `resetHardware()` at the top of every case; without that
-defence the cases would become **order-dependent** and the configuration assertions could pass for
-the wrong reason - the bits right because the last test set them, not because this constructor did.
-The point is that a class should not need its tests to clean up after it.
+peripheral it configured outlives it, so a defaulted destructor is observably wrong even on the
+host. The suite defends itself today by calling `resetHardware()` at the top of every case; without
+that defence the cases would become **order-dependent** and the configuration assertions could pass
+for the wrong reason - the bits right because the last test set them, not because this constructor
+did. The point is that a class should not need its tests to clean up after it.
 
 ### (c) 3 marks
 
@@ -1310,19 +1330,20 @@ The point is that a class should not need its tests to clean up after it.
   1 MHz and there is no minimum rate. Everything is simply twice as slow - a five-byte transaction
   goes from 40 us to 80 us.
 * **The USART** computes `UBRR0` for a 16 MHz clock while the hardware divides a real 8 MHz one, so
-  the actual baud is **half** the intended: 57600 where 115200 was asked for. A terminal set to
+  the actual baud is **half** of what the divider was computed for: at a 115200 log rate, about
+  57600. A terminal set to
   115200 sees framing errors and garbage, with the occasional plausible character by luck.
 
 **Which you notice first, and why that is unfortunate.** The **terminal**, immediately and
-unmistakably - garbage on a console is impossible to miss, while a `readReg` that takes 80 us instead
-of 40 us looks exactly like one that takes 40 us unless you are measuring.
+unmistakably - garbage on a console is impossible to miss, while a `readReg` that takes 80 us
+instead of 40 us looks exactly like one that takes 40 us unless you are measuring.
 
 That is unfortunate because the loud symptom points at the **logging**, the one part of the system
 that does not matter, and hides the fact that the SPI link is also running at half speed - which is
 precisely what the L09 exercise asks you to measure against the 1 MHz budget. A candidate who
 "fixes" it by halving the log baud has made the symptom go away and left the wrong clock in place,
-and every timing figure they take afterwards is out by a factor of two. The fix is to `F_CPU` (and to
-the fuses, if 16 MHz was what was wanted).
+and every timing figure they take afterwards is out by a factor of two. The fix is to `F_CPU`, so
+that it states the clock the part really runs at (or to the fuses, if 16 MHz was what was wanted).
 
 ---
 
@@ -1363,7 +1384,7 @@ public:
     ~EchoNode() noexcept override = default;
 
     /** @brief Run application. @param[in] stop Set true to stop the application. */
-    void run(const bool& stop) noexcept override;
+    void run(const volatile bool& stop) noexcept override;
 
     EchoNode()                           = delete;
     EchoNode(const EchoNode&)            = delete;
@@ -1394,7 +1415,7 @@ EchoNode::EchoNode(driver::uart::Interface& uart) noexcept
 {}
 
 // -----------------------------------------------------------------------------
-void EchoNode::run(const bool& stop) noexcept
+void EchoNode::run(const volatile bool& stop) noexcept
 {
     while (!stop)
     {
@@ -1421,12 +1442,15 @@ nothing else the loop could usefully do, and no deadlock available, since the TX
 hardware whether software cooperates or not. Poll where you might have to give up; block where you
 have already committed.
 
-**Why a plain `bool` by `const` reference.** Freestanding avr-libc ships no `<atomic>`, so
+**Why a `volatile bool` by `const` reference.** Freestanding avr-libc ships no `<atomic>`, so
 `std::atomic<bool>` is not available - and on the single-core ATmega328P a byte read is already
-indivisible, so it would not buy anything. It is passed **by reference** and re-read every pass so
-that the owner can set it at any moment; a return value would only be examined when `run()` returned,
-which is exactly what it will not do until the flag is set. And it is `const` because the application
-only ever **reads** it: setting it is the caller's business.
+indivisible, so it would not buy anything. It is `volatile` so that every pass reads it from memory:
+`run()` never writes it, and when it is set from outside anything the loop calls, by an interrupt
+handler for instance, a plain `bool` could be read once and kept in a register. It is passed **by
+reference** and re-read every pass so that the owner can set it at any moment; a return value would
+only be examined when `run()` returned, which is exactly what it will not do until the flag is set.
+And it is `const` because the application only ever **reads** it: setting it is the caller's
+business.
 
 ### (b) 3 marks
 
@@ -1436,7 +1460,7 @@ It runs over the L06 **`driver::uart::Stub`** - the UART-level double, not the t
 `EchoNode` sits above the driver and knows nothing of SPI. Host test code may use full modern C++.
 
 ```cpp
-bool stop{false};
+volatile bool stop{false};
 driver::uart::Stub stub{stop};
 app::EchoNode node{stub};
 
@@ -1472,10 +1496,11 @@ the first thing the loop does before any I/O is test `stop` - so a caller who se
 `run()` is even entered gets an immediate return.
 
 The implementation mistake it isolates is a `run()` that **ignores `read()`'s return value** and
-echoes `rxByte` regardless. With input queued that bug is nearly invisible, since every read succeeds
-and every echo is correct; with nothing queued it sends one spurious `0x00` where it should send
-none. (A non-empty case can catch it too, but only if it asserts the exact `txLen()` rather than just
-the first *n* bytes - which is a good argument for asserting the length as well as the contents.)
+echoes `rxByte` regardless. With nothing queued, that is the only thing the loop can do wrong, and
+it shows as one spurious `0x00` where there should be none. The three-byte case catches it too, but
+only through its length assertion: every byte it compares is correct, and the bug adds a fourth,
+spurious `0x00` after them, so `txLen()` reads 4 instead of 3. A test that checked only the first
+*n* bytes would pass it, which is why the length is asserted as well as the contents.
 
 ### (c) 3 marks
 
@@ -1491,9 +1516,9 @@ the first *n* bytes - which is a good argument for asserting the length as well 
 
 **Why the order is forced.** *(1 mark)* **`BAUD_DIV`.** The peripheral cannot transmit or receive
 anything until a divider has been written to it - `baud_gen` has no default and the guarded
-conversion substitutes `1`, which is 3.125 Mbaud and useless. And the **only** route to `BAUD_DIV` is
-an SPI transaction: it is not reachable from the data plane, not from a pin, not from a strap, not
-from a reset value anybody can choose.
+conversion substitutes `1`, which is 3.125 Mbaud and useless. And the **only** route to `BAUD_DIV`
+is an SPI transaction: it is not reachable from the data plane, not from a pin, not from a strap,
+not from its reset value, which is zero.
 
 So the control plane must be proven before **any** rung that uses the peripheral. Any ladder that
 puts a peripheral rung first is exercising two layers at once and calling it one, and its first
@@ -1523,16 +1548,20 @@ only be constructed over a `driver::transport::Interface&`, so the test must bui
 `driver::transport::Stub`, then a `Uart` over it, then script **every SPI transaction the echo
 produces**: for each byte received, a `STATUS` read, an `RX_DATA` read and an `RX_POP` write; for
 each byte echoed, a `STATUS` read and a `TX_DATA` write - five bytes each, and each read needing its
-command-phase placeholder plus four data bytes queued. Testing three bytes of echo becomes scripting
-about fifty bytes of SPI, and the test is then re-testing the register protocol rather than the echo
-logic.
+command-phase placeholder plus four data bytes queued. Every transfer consumes a queued byte, the
+writes' included, so each echoed byte costs twenty-five bytes of script and three bytes of echo
+about eighty, and the test is then re-testing the register protocol rather than the echo logic.
+Worse, it cannot end: the flag that stops `run()` was set by the UART stub, and a transport stub
+knows nothing of it, so once the script runs out every `STATUS` poll reads zero and `run()` spins
+for ever.
 
 It is also impossible to run `EchoNode` over anything **else** - the L06 `driver::uart::Stub`, a
 loopback double, a future driver variant, a driver over a different transport - because the type is
 nailed down at compile time.
 
-**What has to be built first:** the whole L08 test harness, one layer too low, before a single line
-of application logic can be checked.
+**What has to be built first:** the whole L08 test harness, one layer too low, and a transport stub
+taught to set the stop flag, a double doing an application's job, before a single line of
+application logic can be checked.
 
 **The fix.** One word:
 
@@ -1541,10 +1570,11 @@ driver::uart::Interface& myUart;
 ```
 
 **The L06 decision it makes concrete.** *(1 mark)* That `driver::uart::Interface` is **abstract so
-that the application codes against a promise rather than against a driver**. The interface exists for
-exactly this: the application and its tests are written against the contract, so the same object runs
-unchanged over the stub in a host test and over the real `Uart` on the bench, and arrives at the
-bench already proven. Depending on the concrete class throws the abstraction away while still paying
-for it - the vtable, the indirection and the extra header are all still there, buying nothing.
+that the application codes against a promise rather than against a driver**. The interface exists
+for exactly this: the application and its tests are written against the contract, so the same object
+runs unchanged over the stub in a host test and over the real `Uart` on the bench, and arrives at
+the bench already proven. Depending on the concrete class throws the abstraction away while still
+paying for it - the vtable, the indirection and the extra header are all still there, buying
+nothing.
 
 ---
